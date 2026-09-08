@@ -1,0 +1,109 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "alps"
+version = "1.6.1"
+description = "ALPS: orchestrator for ligandparam, scission, and ffpopt"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+  {name = "Zeke Piskulich", email = "piskulichz@gmail.com"},
+  {name = "German P. Barletta"},
+  {name = "Timothy J. Giese"},
+  {name = "Nate Levinzon", email = "ndlevinzon@gmail.com"},
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+]
+# Orchestrator-only. Install companions separately:
+#   pip install -e ../ligandparam-main
+#   pip install -e ../scission-main
+#   pip install -e ../ffpopt-main
+# AmberTools is not on PyPI.
+dependencies = [
+  "numpy<2",
+  "pandas",
+  "requests",
+  "MDAnalysis>2.7.0",
+  "parmed",
+  "rdkit",
+  "ase",
+  "scipy",
+  "matplotlib",
+  "networkx>=3.0",
+  "pyyaml>=6.0",
+]
+
+urls = { "Homepage" = "https://github.com/piskulichz/ligandparam" }
+
+[project.optional-dependencies]
+tblite = [
+  "tblite",
+]
+ml = [
+  "deepmd-kit",
+]
+ml-potentials = [
+  "mace-torch",
+  "torchani",
+]
+aimnet = [
+  "aimnet[ase]",
+]
+dihed = [
+  "ndfes",
+  "geometric",
+]
+jax = [
+  "jax>=0.4.30",
+  "jaxlib>=0.4.30",
+]
+misc = [
+  "openbabel",
+]
+sage = [
+  "openff-toolkit",
+]
+docs = [
+  "sphinx",
+  "sphinx_rtd_theme",
+]
+all = [
+  "alps[tblite]",
+  "alps[ml]",
+  "alps[ml-potentials]",
+  "alps[aimnet]",
+  "alps[dihed]",
+  "alps[jax]",
+  "alps[misc]",
+  "alps[sage]",
+  "alps[docs]",
+]
+
+[project.scripts]
+lig-getparam = "alps.cli.LigGetParam:main"
+lig-dihed-correct = "alps.cli.LigDihedCorrect:main"
+lig-scission = "alps.cli.LigScission:main"
+
+# This directory is both the project root and the import package,
+# matching ligandparam-main / scission-main.
+[tool.setuptools]
+package-dir = { "alps" = "." }
+packages = [
+  "alps",
+  "alps.cli",
+  "alps.workflows",
+  "alps.stages",
+]
+
+[tool.ruff]
+line-length = 120
+indent-width = 4
+
+[tool.ruff.format]
+skip-magic-trailing-comma = true
