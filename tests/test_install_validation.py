@@ -393,6 +393,33 @@ class TestBehavioralSmoke(unittest.TestCase):
             self.assertIn("[twist] scan: demo", captured.getvalue())
             self.assertIn("[twist] scan: demo", (root / "job.log").read_text(encoding="utf-8"))
 
+    def test_prepare_start_json_runs_script_main(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from alps.ffpopt_bridge import prepare_start_json
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            script = root / "ffpopt-PrepareInput.py"
+            script.write_text(
+                "import sys\n"
+                "from pathlib import Path\n"
+                "if __name__ == '__main__':\n"
+                "    out = Path(next(a.split('=', 1)[1] for a in sys.argv if a.startswith('--out=')))\n"
+                "    out.write_text('ok\\n', encoding='utf-8')\n",
+                encoding="utf-8",
+            )
+            parm = root / "fragment.parm7"
+            rst = root / "fragment.rst7"
+            parm.write_text("parm\n", encoding="utf-8")
+            rst.write_text("rst\n", encoding="utf-8")
+            out = root / "start.json"
+            with patch("alps.ffpopt_bridge.ffpopt_bin_script", return_value=script):
+                prepare_start_json(parm, rst, out)
+            self.assertEqual(out.read_text(encoding="utf-8"), "ok\n")
+
     def test_york_geometric_opt_is_inverted(self):
         from alps.ffpopt_bridge import york_standard_kwargs
 

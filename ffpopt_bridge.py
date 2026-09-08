@@ -85,17 +85,28 @@ def ffpopt_bin_script(name: str) -> Path:
 def prepare_start_json(parm7: Path, rst7: Path, out_json: Path) -> Path:
     """Write ``start.json`` via ffpopt PrepareInput in this process."""
     script = ffpopt_bin_script("ffpopt-PrepareInput.py")
+    parm7 = Path(parm7).resolve()
+    rst7 = Path(rst7).resolve()
+    missing = [str(path) for path in (parm7, rst7) if not path.is_file()]
+    if missing:
+        raise FileNotFoundError(
+            "PrepareInput needs parm7 and rst7; missing: " + ", ".join(missing)
+        )
     out_json = Path(out_json).resolve()
     out_json.parent.mkdir(parents=True, exist_ok=True)
     argv = sys.argv
     sys.argv = [
         str(script),
-        f"--parm={Path(parm7).resolve()}",
-        f"--crd={Path(rst7).resolve()}",
+        f"--parm={parm7}",
+        f"--crd={rst7}",
         f"--out={out_json}",
     ]
     try:
-        runpy.run_path(str(script), run_name="__ffpopt_prepare_input__")
+        # York's bin script only runs under ``__name__ == "__main__"``.
+        runpy.run_path(str(script), run_name="__main__")
+    except SystemExit as exc:
+        if exc.code not in (0, None):
+            raise RuntimeError(f"PrepareInput exited with {exc.code}") from exc
     finally:
         sys.argv = argv
     if not out_json.is_file():
