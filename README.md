@@ -83,18 +83,10 @@ Env knobs (`FFPOPT_*`) live in the independent ffpopt tree. Overlay with
 
 ## Installation
 
-From the workspace that holds the four sibling checkouts:
+The full HPC / conda stack (Python 3.12, conda-forge AmberTools, all four
+repos) lives in the workspace README: [`../README.md`](../README.md).
 
-```bash
-mamba env create -f alps/env.yaml   # or: conda env create -f alps/env.yaml
-conda activate alps
-pip install -e ligandparam
-pip install -e scission
-pip install -e ffpopt
-pip install -e "./alps[dihed,tblite]"
-```
-
-From this directory alone (after companions are installed):
+From this directory alone (after companions are already installed):
 
 ```bash
 pip install -e ".[dihed,tblite]"
