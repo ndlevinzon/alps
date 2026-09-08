@@ -134,27 +134,72 @@ def run_whole_ligand_dihed_twist_workflow(
     rst7 = out_dir_path / "parent.rst7"
     start_json = out_dir_path / "start.json"
     log.info("[alps] whole-ligand: %s rotatable bond(s)", len(bond_args))
-    if not (skip_existing and parm7.is_file() and rst7.is_file()):
-        parm7, rst7 = _tleap_parent_parm_rst(mol2_p, frcmod_p, out_dir_path, log)
-    if not (skip_existing and start_json.is_file()):
-        prepare_start_json(parm7, rst7, start_json)
+    from alps.Log import install_ffpopt_stdio, silence_wavefront_origin_filters
+    from alps.Progress import (
+        make_whole_board,
+        print_whole_run_card,
+        tee_job_stdio,
+    )
 
-    log.info("[alps] twisting parent nproc=%s -> %s", nproc, out_dir_path)
-    york_kwargs = york_standard_kwargs(**standard_kwargs)
-    with pushd(out_dir_path):
-        result = run_dihed_twist_workflow(
-            inp=str(start_json),
-            bond=bond_args,
-            delta=delta,
-            nprim=nprim,
-            maxiter=maxiter,
-            bytype=True,
-            nlmaxiter=nlmaxiter,
-            nproc=int(nproc),
-            skip_existing=skip_existing,
-            plot_comparisons=plot_comparisons,
-            **york_kwargs,
+    install_ffpopt_stdio()
+    print_whole_run_card(
+        ligand=mol2_p.stem,
+        model=str(standard_kwargs.get("model") or "qdpi2"),
+        nproc=int(nproc),
+        delta=int(delta),
+        n_bonds=len(bond_args),
+        work_dir=out_dir_path,
+    )
+    store, watcher = make_whole_board(out_dir_path, logger=log)
+    if store is not None:
+        store.register(
+            "parent",
+            bonds=len(bond_args),
+            log_path=str(out_dir_path / "whole-twist.log"),
         )
+        if watcher is not None:
+            watcher.start()
+    try:
+        if store is not None:
+            store.update("parent", status="running", stage="prepare")
+        if not (skip_existing and parm7.is_file() and rst7.is_file()):
+            parm7, rst7 = _tleap_parent_parm_rst(mol2_p, frcmod_p, out_dir_path, log)
+        if not (skip_existing and start_json.is_file()):
+            prepare_start_json(parm7, rst7, start_json)
+
+        log.info("[alps] twisting parent nproc=%s -> %s", nproc, out_dir_path)
+        if store is not None:
+            store.update("parent", status="running", stage="twist")
+        york_kwargs = york_standard_kwargs(**standard_kwargs)
+        silence_wavefront_origin_filters(load_wavefront=True)
+        with tee_job_stdio(out_dir_path / "whole-twist.log"), pushd(out_dir_path):
+            result = run_dihed_twist_workflow(
+                inp=str(start_json),
+                bond=bond_args,
+                delta=delta,
+                nprim=nprim,
+                maxiter=maxiter,
+                bytype=True,
+                nlmaxiter=nlmaxiter,
+                nproc=int(nproc),
+                skip_existing=skip_existing,
+                plot_comparisons=plot_comparisons,
+                **york_kwargs,
+            )
+        if store is not None:
+            store.update("parent", status="done", stage="finished")
+    except Exception as exc:
+        if store is not None:
+            store.update(
+                "parent",
+                status="failed",
+                stage="failed",
+                error=str(exc)[:200],
+            )
+        raise
+    finally:
+        if watcher is not None:
+            watcher.stop()
     latest = None
     for it in sorted(out_dir_path.glob("it*.frcmod")):
         latest = it

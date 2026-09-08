@@ -6,9 +6,12 @@ Each package keeps its own logger name (``alps``, ``ligandparam``,
 process stream. Standalone CLIs that already configured handlers are left
 unchanged except for the extra ALPS tee.
 
-ligandparam file logs stay as-is (timestamped). The tee is extra stdout.
-ffpopt still prints ``[twist]`` / ``[frag-twist]`` lines itself; those
-already land on this process stdout when ALPS calls the API in-process.
+ligandparam file logs stay as-is (timestamped). The tee is extra stdout
+(message-only, no ``[ligandparam]`` tag). ffpopt still prints ``[twist]`` /
+``[wavefront]`` itself; those land on this process stdout when ALPS calls
+the API in-process. ``lig-dihed-correct`` also reprints a live ASCII board
+(``FRAG_STATUS.txt`` / ``WHOLE_STATUS.txt``), matching the ligandparam
+recipe board.
 """
 
 from __future__ import annotations
@@ -26,13 +29,24 @@ _STDIO_CONFIGURED = False
 
 
 class _CompanionFormatter(logging.Formatter):
-    """Keep ligandparam message-only; tag the others so streams stay greppable."""
+    """Keep ligandparam message-only; tag the others so streams stay greppable.
+
+    Callers may still write ``log.info("[alps] ...")``; peel one leading
+    ``[name]`` so stdout never shows ``[alps] [alps] ...``.
+    """
 
     def format(self, record: logging.LogRecord) -> str:
         msg = record.getMessage()
         if record.name == "ligandparam" or record.name.startswith("ligandparam."):
             return msg
-        return f"[{record.name}] {msg}"
+        tag = record.name.split(".", 1)[0]
+        prefix = f"[{tag}]"
+        rest = msg
+        if rest.startswith(prefix + " "):
+            rest = rest[len(prefix) + 1 :]
+        elif rest.startswith(prefix):
+            rest = rest[len(prefix) :].lstrip()
+        return f"{prefix} {rest}" if rest else prefix
 
 
 class _FlushingStreamHandler(logging.StreamHandler):
@@ -103,6 +117,59 @@ def get_logger(name: str = "alps") -> logging.Logger:
     """Return an ALPS (or companion) logger after stdout logging is on."""
     setup_alps_stdout_logging()
     return logging.getLogger(name)
+
+
+def silence_wavefront_origin_filters(*, load_wavefront: bool = False) -> None:
+    """Drop ffpopt ``ShowOriginFilter`` (``[LOG-ORIGIN]`` on stderr).
+
+    WaveFront attaches that filter at import time. Under ALPS it floods
+    Slurm ``.err`` on every log record; ligandparam-style stdout should
+    stay status + board only.
+    """
+    if load_wavefront:
+        for mod_name in ("ffpopt.WaveFront", "ffpopt.WaveFrontND"):
+            try:
+                __import__(mod_name)
+            except Exception:
+                continue
+    for mod_name in ("ffpopt.WaveFront", "ffpopt.WaveFrontND"):
+        mod = sys.modules.get(mod_name)
+        if mod is None:
+            continue
+        cls = getattr(mod, "ShowOriginFilter", None)
+        if cls is None:
+            continue
+        current = getattr(cls, "filter", None)
+        if current is not None and getattr(current, "_alps_silenced", False):
+            continue
+
+        def _quiet(self, record):  # noqa: ARG001
+            return True
+
+        _quiet._alps_silenced = True  # type: ignore[attr-defined]
+        cls.filter = _quiet  # type: ignore[method-assign]
+    root = logging.getLogger()
+    for handler in list(root.handlers):
+        handler.filters = [
+            f for f in handler.filters if type(f).__name__ != "ShowOriginFilter"
+        ]
+
+
+def install_ffpopt_stdio() -> None:
+    """Match ligandparam's ALPS stdout contract for in-process ffpopt.
+
+    Line-buffered ASCII stdio, shared logger tee, and no WaveFront
+    ``[LOG-ORIGIN]`` spam. ffpopt ``print`` lines already hit this process
+    stdout; the twist workflows add the live status board.
+    """
+    setup_alps_stdout_logging()
+    try:
+        from ligandparam.runtime.Console import ensure_ascii_stdio
+
+        ensure_ascii_stdio()
+    except Exception:
+        pass
+    silence_wavefront_origin_filters()
 
 
 def install_ligandparam_stdout_tee() -> None:

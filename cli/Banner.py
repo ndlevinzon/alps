@@ -86,8 +86,9 @@ def print_progress_hint(*, stream: TextIO | None = None) -> None:
     try:
         out.write(
             "Progress: a live ASCII board is reprinted on this stdout while\n"
-            "antechamber / sqm / g16 run. Those tools print nothing until they\n"
-            "finish; a quiet Slurm .out is normal between board refreshes.\n"
+            "antechamber / sqm / g16 / xtb / geomeTRIC run. Those tools print\n"
+            "little until they finish; a quiet Slurm .out is normal between\n"
+            "board refreshes.\n"
             "\n"
         )
         out.flush()

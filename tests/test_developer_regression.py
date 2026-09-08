@@ -3296,6 +3296,7 @@ class TestGitTrackedModuleCase(unittest.TestCase):
         "Log.py",
         "companions.py",
         "ffpopt_bridge.py",
+        "Progress.py",
         "cli/Banner.py",
         "cli/LigGetParam.py",
         "cli/LigDihedCorrect.py",

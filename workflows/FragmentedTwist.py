@@ -142,17 +142,29 @@ def _load_existing_fragments(out_dir: Path):
 def _twist_one_fragment(
     fragment,
     *,
-    skip_existing: bool,
     log: logging.Logger,
+    progress=None,
     **twist_kwargs,
 ) -> dict:
+    from alps.Log import silence_wavefront_origin_filters
+    from alps.Progress import tee_job_stdio
     from ffpopt.Workflows import run_dihed_twist_workflow
 
+    silence_wavefront_origin_filters(load_wavefront=True)
+    skip_existing = bool(twist_kwargs.get("skip_existing", True))
     frag_dir = Path(fragment.manifest_path).resolve().parent
     bonds = bonds0_from_scission_fit_torsions(fragment.fit_torsions)
     bond_args = [f"{a},{b}" for a, b in bonds]
+    log_path = frag_dir / "frag-twist.log"
     if skip_existing and is_fragment_twist_done(frag_dir):
         log.info("[alps] %s already complete - skipping twist", fragment.fragment_id)
+        if progress is not None:
+            progress.update(
+                fragment.fragment_id,
+                status="skipped",
+                stage="finished",
+                detail="already complete",
+            )
         return {
             "fragment_id": fragment.fragment_id,
             "dir": str(frag_dir),
@@ -167,24 +179,46 @@ def _twist_one_fragment(
             f"fragment {fragment.fragment_id} has no parm7/rst7 - "
             "scission likely failed tleap (AmberTools on PATH?)"
         )
-    start_json = frag_dir / "start.json"
-    if not (skip_existing and start_json.exists()):
-        log.info("[alps] PrepareInput %s -> %s", fragment.fragment_id, start_json)
-        prepare_start_json(fragment.parm7_path, fragment.rst7_path, start_json)
-    log.info(
-        "[alps] twisting %s (%s bond(s)) nproc=%s",
-        fragment.fragment_id,
-        len(bonds),
-        twist_kwargs.get("nproc"),
-    )
-    york_kwargs = york_standard_kwargs(**twist_kwargs)
-    with pushd(frag_dir):
-        result = run_dihed_twist_workflow(
-            inp=str(start_json),
-            bond=bond_args,
-            **york_kwargs,
+    if progress is not None:
+        progress.update(
+            fragment.fragment_id,
+            status="running",
+            stage="prepare",
+            detail=f"{len(bonds)} bond(s)",
         )
+    start_json = frag_dir / "start.json"
+    york_kwargs = york_standard_kwargs(**twist_kwargs)
+    with tee_job_stdio(log_path):
+        if not (skip_existing and start_json.exists()):
+            log.info("[alps] PrepareInput %s -> %s", fragment.fragment_id, start_json)
+            prepare_start_json(fragment.parm7_path, fragment.rst7_path, start_json)
+        log.info(
+            "[alps] twisting %s (%s bond(s)) nproc=%s",
+            fragment.fragment_id,
+            len(bonds),
+            twist_kwargs.get("nproc"),
+        )
+        if progress is not None:
+            progress.update(
+                fragment.fragment_id,
+                status="running",
+                stage="twist",
+                detail=f"{len(bonds)} bond(s)",
+            )
+        with pushd(frag_dir):
+            result = run_dihed_twist_workflow(
+                inp=str(start_json),
+                bond=bond_args,
+                **york_kwargs,
+            )
     mark_fragment_twist_done(frag_dir)
+    if progress is not None:
+        progress.update(
+            fragment.fragment_id,
+            status="done",
+            stage="finished",
+            detail=f"{len(bonds)} bond(s)",
+        )
     return {
         "fragment_id": fragment.fragment_id,
         "dir": str(frag_dir),
@@ -305,15 +339,57 @@ def run_fragmented_dihed_twist_workflow(
 
     per_fragment = []
     fragment_dirs = []
+    jobs = []
     for fragment in fragments_iter:
         if not getattr(fragment, "fit_torsions", None):
             log.info("[alps] %s: no fit_torsions - skip", fragment.fragment_id)
             continue
-        rec = _twist_one_fragment(
-            fragment, skip_existing=skip_existing, log=log, **twist_kwargs
-        )
-        per_fragment.append(rec)
-        fragment_dirs.append(Path(rec["dir"]))
+        jobs.append(fragment)
+
+    from alps.Log import install_ffpopt_stdio
+    from alps.Progress import make_fragment_board, print_fragmented_run_card
+
+    install_ffpopt_stdio()
+    print_fragmented_run_card(
+        ligand=mol2_path.stem,
+        model=str(twist_kwargs.get("model") or "qdpi2"),
+        nproc=int(nproc),
+        n_fragments=len(jobs),
+        work_dir=out_dir_path,
+    )
+    store, watcher = make_fragment_board(out_dir_path, logger=log)
+    if store is not None:
+        for fragment in jobs:
+            frag_dir = Path(fragment.manifest_path).resolve().parent
+            n_bonds = len(bonds0_from_scission_fit_torsions(fragment.fit_torsions))
+            store.register(
+                fragment.fragment_id,
+                bonds=n_bonds,
+                frag_dir=str(frag_dir),
+                log_path=str(frag_dir / "frag-twist.log"),
+            )
+        if watcher is not None:
+            watcher.start()
+    try:
+        for fragment in jobs:
+            try:
+                rec = _twist_one_fragment(
+                    fragment, log=log, progress=store, **twist_kwargs
+                )
+            except Exception as exc:
+                if store is not None:
+                    store.update(
+                        fragment.fragment_id,
+                        status="failed",
+                        stage="failed",
+                        error=str(exc)[:200],
+                    )
+                raise
+            per_fragment.append(rec)
+            fragment_dirs.append(Path(rec["dir"]))
+    finally:
+        if watcher is not None:
+            watcher.stop()
 
     if not fragment_dirs:
         raise RuntimeError("no fragments had fittable torsions - nothing to merge")

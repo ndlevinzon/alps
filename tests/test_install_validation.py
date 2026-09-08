@@ -324,18 +324,74 @@ class TestBehavioralSmoke(unittest.TestCase):
         try:
             setup_alps_stdout_logging(stream=buf)
             get_logger("alps").info("orchestrator")
+            get_logger("alps").info("[alps] already tagged")
             get_logger("ligandparam").info("param only")
             get_logger("scission").info("frag")
             get_logger("ffpopt").info("twist")
             out = buf.getvalue()
             self.assertIn("orchestrator", out)
             self.assertIn("[alps]", out)
+            self.assertIn("[alps] already tagged", out)
+            self.assertNotIn("[alps] [alps]", out)
             self.assertIn("param only", out)
             self.assertNotIn("[ligandparam] param only", out)
             self.assertIn("[scission] frag", out)
             self.assertIn("[ffpopt] twist", out)
         finally:
             reset_for_tests()
+
+    def test_fragment_board_and_job_stdio_tee(self):
+        import logging
+        import tempfile
+        from pathlib import Path
+
+        from alps.Progress import (
+            make_fragment_board,
+            print_fragmented_run_card,
+            tee_job_stdio,
+        )
+
+        logger = logging.getLogger("alps")
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            card = io.StringIO()
+            print_fragmented_run_card(
+                ligand="CHAPS",
+                model="xtb",
+                nproc=4,
+                n_fragments=2,
+                work_dir=root,
+                stream=card,
+            )
+            self.assertIn("FRAGMENTED TWIST", card.getvalue())
+            self.assertIn("FRAG_STATUS.txt", card.getvalue())
+
+            store, watcher = make_fragment_board(
+                root, logger=logger, stream=io.StringIO()
+            )
+            self.assertIsNotNone(store)
+            self.assertIsNotNone(watcher)
+            store.register("frag_a", bonds=1, frag_dir=str(root / "frag_a"))
+            watcher.start()
+            try:
+                store.update("frag_a", status="running", stage="twist")
+                store.update("frag_a", status="done", stage="finished")
+            finally:
+                watcher.stop()
+            board = (root / "FRAG_STATUS.txt").read_text(encoding="utf-8")
+            self.assertIn("frag_a", board)
+            self.assertIn("finished", board)
+
+            captured = io.StringIO()
+            old = sys.stdout
+            sys.stdout = captured
+            try:
+                with tee_job_stdio(root / "job.log"):
+                    print("[twist] scan: demo", flush=True)
+            finally:
+                sys.stdout = old
+            self.assertIn("[twist] scan: demo", captured.getvalue())
+            self.assertIn("[twist] scan: demo", (root / "job.log").read_text(encoding="utf-8"))
 
     def test_york_geometric_opt_is_inverted(self):
         from alps.ffpopt_bridge import york_standard_kwargs

@@ -118,8 +118,9 @@ def run_dihed_correct(
 
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point for ``lig-dihed-correct``."""
-    from alps.cli.Banner import print_startup_banner
+    from alps.cli.Banner import print_progress_hint, print_startup_banner
     from alps.companions import print_status_line
+    from alps.Log import attach_logger, get_logger as alps_get_logger, install_ffpopt_stdio
 
     parser = argparse.ArgumentParser(
         description=(
@@ -277,7 +278,8 @@ def main(argv: list[str] | None = None) -> int:
 
     print_startup_banner()
     print_status_line()
-    from alps.Log import attach_logger, get_logger as alps_get_logger
+    print_progress_hint()
+    install_ffpopt_stdio()
 
     try:
         bundle = resolve_getparam_bundle(
@@ -294,10 +296,13 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.logger == "file":
         logger = attach_logger(
-            set_file_logger(bundle.work_dir / f"{bundle.stem}.dihed.log")
+            set_file_logger(
+                bundle.work_dir / f"{bundle.stem}.dihed.log",
+                logname="alps",
+            )
         )
     else:
-        logger = alps_get_logger("ligandparam")
+        logger = alps_get_logger("alps")
 
     logger.info(
         "lig-dihed-correct: mol2=%s lib=%s frcmod=%s",
