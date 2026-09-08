@@ -160,8 +160,8 @@ with the original library in LEaP.
         except ImportError as exc:
             raise ImportError(
                 "StageDihedTwistCorrection requires independent 'ffpopt' and "
-                "'scission' packages (sibling checkouts ffpopt-main / "
-                "scission-main, or pip install -e). AmberTools must be on PATH."
+                "'scission' packages (sibling checkouts or pip install -e). "
+                "AmberTools must be on PATH."
             ) from exc
 
         self.out_dir.mkdir(parents=True, exist_ok=True)

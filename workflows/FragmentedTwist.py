@@ -232,16 +232,16 @@ def run_fragmented_dihed_twist_workflow(
     log = logger if logger is not None else get_logger("alps")
     if fast_wavefront:
         log.warning(
-            "[alps] --fast is ignored: ffpopt-main has no GAU_LOOSE / optimizer-ladder presets"
+            "[alps] --fast is ignored: this ffpopt checkout has no GAU_LOOSE / optimizer-ladder presets"
         )
     if multi_centroid or fit_cli_args:
         log.warning(
-            "[alps] AFFDO extras (multi-centroid / fit-cli) are not in ffpopt-main; ignoring"
+            "[alps] AFFDO extras (multi-centroid / fit-cli) are not in this ffpopt checkout; ignoring"
         )
     unused = {k: standard_kwargs.pop(k) for k in ("soft_dihed_restraint", "soft_dihed_k",
               "soft_dihed_kmax", "soft_dihed_tol") if k in standard_kwargs}
     if unused:
-        log.warning("[alps] soft-dihed restraint flags are not in ffpopt-main; ignoring")
+        log.warning("[alps] soft-dihed restraint flags are not in this ffpopt checkout; ignoring")
 
     pin_math_threads(1)
     mol2_path, lib_path, parent_frcmod = _parent_paths_from_args(

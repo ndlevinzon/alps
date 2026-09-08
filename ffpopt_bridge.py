@@ -1,6 +1,6 @@
 """In-process ffpopt helpers used by ALPS workflows.
 
-PrepareInput is still a bin script in ffpopt-main; run it in this interpreter
+PrepareInput is still a bin script in ffpopt; run it in this interpreter
 so its prints land on the ALPS stdout instead of a subprocess pipe.
 """
 
@@ -28,7 +28,7 @@ def pushd(path: Path) -> Iterator[Path]:
 
 
 def york_standard_kwargs(*, geometric_opt: bool | None = None, **kwargs) -> dict:
-    """Map ALPS names onto ffpopt-main ``AddStandardOptions``.
+    """Map ALPS names onto independent ffpopt ``AddStandardOptions``.
 
     York ``--geometric-opt`` means ASE BFGS, which is the opposite of ALPS
     ``geometric_opt=True`` (use geomeTRIC). Default York is geomeTRIC.
@@ -77,7 +77,7 @@ def ffpopt_bin_script(name: str) -> Path:
             return path
     raise FileNotFoundError(
         f"{name} not found next to ffpopt at {pkg}. "
-        "Install ffpopt (pip install -e ffpopt-main) or keep ffpopt-main "
+        "Install ffpopt (pip install -e ffpopt) or keep ffpopt "
         "beside this ALPS checkout."
     )
 

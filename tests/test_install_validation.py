@@ -16,15 +16,12 @@ from __future__ import annotations
 
 import importlib
 import importlib.metadata
-import importlib.util
 import io
 import os
 import shutil
 import sys
-import tempfile
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
 
 
 _TESTS_DIR = Path(__file__).resolve().parent
@@ -135,46 +132,7 @@ class TestCorePackageInstall(unittest.TestCase):
 
 
 class TestPublicAPISurface(unittest.TestCase):
-    """Canonical modules and symbols used by recipes / CLIs must import."""
-
-    def test_ligandparam_stages_and_recipes(self):
-        from ligandparam.recipes.Registry import available_recipes, get_recipe
-        from ligandparam.stages.AbstractStage import AbstractStage
-
-        names = available_recipes()
-        self.assertIsInstance(names, (list, tuple))
-        self.assertIn("freeligand", names)
-        self.assertIn("lazyligand", names)
-        with self.assertRaises(ValueError):
-            get_recipe("not-a-real-recipe")
-        self.assertTrue(issubclass(AbstractStage, object))
-
-        # Module files must be present (find_spec does not execute heavy imports).
-        for modname in (
-            "ligandparam.recipes.FreeLigand",
-            "ligandparam.recipes.LazyLigand",
-            "ligandparam.stages.Gaussian",
-        ):
-            self.assertIsNotNone(
-                importlib.util.find_spec(modname),
-                f"missing module {modname}",
-            )
-
-        # Import gaussian stages (no RDKit at module top in typical installs).
-        m = importlib.import_module("ligandparam.stages.Gaussian")
-        for name in (
-            "GaussianMinimizeRESP",
-            "GaussianRESP",
-            "StageGaussianRotation",
-            "StageGaussianToMol2",
-            "StageGaussiantoMol2",
-        ):
-            self.assertTrue(isinstance(getattr(m, name), type), name)
-        self.assertIs(m.StageGaussiantoMol2, m.StageGaussianToMol2)
-
-        if _has_module("rdkit"):
-            pdb_names = importlib.import_module("ligandparam.stages.PdbNames")
-            self.assertIs(pdb_names.PDB_Name_Fixer, pdb_names.StagePdbNameFixer)
+    """Canonical modules and symbols used by ALPS CLIs must import."""
 
     def test_companion_default_is_sibling_or_installed(self):
         from alps.companions import companion_status, repo_root
@@ -195,14 +153,6 @@ class TestPublicAPISurface(unittest.TestCase):
                 getattr(mod, "__ligandparam_bundle__", False),
                 f"{name} should be an independent checkout",
             )
-
-    def test_gaussian_and_smiles_stages(self):
-        if not _has_module("rdkit"):
-            self.skipTest(
-                "rdkit required for smiles stages; install with: pip install -e ."
-            )
-        smiles = importlib.import_module("ligandparam.stages.SmilesToPdb")
-        self.assertTrue(hasattr(smiles, "StageSmilesToPDB"))
 
     def test_ffpopt_workflow_surface(self):
         m = importlib.import_module("ffpopt.Workflows")
@@ -232,15 +182,6 @@ class TestPublicAPISurface(unittest.TestCase):
             self.assertTrue(hasattr(wf, name), name)
         wnd = importlib.import_module("ffpopt.WaveFrontND")
         self.assertTrue(hasattr(wnd, "Wavefront"))
-
-    def test_scission_writers_and_frcmod_keys(self):
-        writers = importlib.import_module("scission.Writers")
-        self.assertEqual(writers.safe_name("a/b c"), "a_b_c")
-        frcmod = importlib.import_module("scission.Frcmod")
-        key = frcmod._normalize_param_name_to_key("LIG_ca-c3-c-o")
-        self.assertIsNotNone(key)
-        self.assertEqual(len(key), 4)
-        self.assertEqual(key, frcmod._normalize_dihe_key(key))
 
     def test_scission_public_api(self):
         import scission
@@ -377,33 +318,6 @@ class TestBehavioralSmoke(unittest.TestCase):
             geometric_opt=True, logger=object(), fast_wavefront=True, model="xtb"
         )
         self.assertEqual(stripped, {"model": "xtb"})
-
-    def test_scission_frcmod_merge_accumulates_iterations(self):
-        from scission.Merge import _load_fragment_update
-
-        def _frcmod(dihe_lines: list[str]) -> str:
-            return (
-                "Remark line goes here\n"
-                "MASS\n\n"
-                "BOND\n\n"
-                "ANGLE\n\n"
-                "DIHE\n"
-                + "".join(f"{line}\n" for line in dihe_lines)
-                + "\nIMPROPER\n\nNONB\n\n"
-            )
-
-        with tempfile.TemporaryDirectory() as td:
-            frag = Path(td)
-            (frag / "it01.frcmod").write_text(
-                _frcmod(["c3-c3-c3-c3 1 1.00 0.0 1.", "c3-c3-c3-n  1 2.00 0.0 1."])
-            )
-            (frag / "it02.frcmod").write_text(
-                _frcmod(["c3-c3-c3-n  1 3.50 0.0 1."])
-            )
-            update = _load_fragment_update(frag)
-            keys = set(update["dihe_groups"].keys())
-            self.assertIn(("c3", "c3", "c3", "c3"), keys)
-            self.assertIn(("c3", "c3", "c3", "n"), keys)
 
     def test_constraints_to_geometric_roundtrip(self):
         try:

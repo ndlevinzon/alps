@@ -1,8 +1,8 @@
 """ALPS: orchestrator for independent ligandparam, ffpopt, and scission installs.
 
 ``pip install -e .`` (from this directory) installs the orchestrator only.
-Companion trees sit beside it (``ligandparam-main``, ``scission-main``,
-``ffpopt-main``) or on ``sys.path``. Importing ``alps`` binds those trees,
+Companion trees sit beside it (``ligandparam``, ``scission``,
+``ffpopt``) or on ``sys.path``. Importing ``alps`` binds those trees,
 then ``lig-getparam`` / ``lig-dihed-correct`` / ``lig-scission`` drive the
 pipeline via APIs.
 """

@@ -197,7 +197,7 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help=(
             "Accepted for compatibility with the old monorepo CLI. "
-            "ffpopt-main has no GAU_LOOSE / optimizer-ladder presets; ignored."
+            "This ffpopt checkout has no GAU_LOOSE / optimizer-ladder presets; ignored."
         ),
     )
     parser.add_argument(
@@ -307,7 +307,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     if args.fast:
         logger.warning(
-            "[alps] --fast is ignored: ffpopt-main has no GAU_LOOSE presets"
+            "[alps] --fast is ignored: this ffpopt checkout has no GAU_LOOSE presets"
         )
     if args.whole_ligand and (
         args.multi_centroid
@@ -316,7 +316,7 @@ def main(argv: list[str] | None = None) -> int:
         or _build_fit_cli_args(args)
     ):
         logger.warning(
-            "[alps] AFFDO extras are not in ffpopt-main; running a plain parent twist"
+            "[alps] AFFDO extras are not in this ffpopt checkout; running a plain parent twist"
         )
     result = run_dihed_correct(
         bundle=bundle,

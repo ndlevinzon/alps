@@ -1,4 +1,4 @@
-"""Locate this ALPS checkout and the sibling ``*-main`` workspace."""
+"""Locate this ALPS checkout and the sibling workspace."""
 
 from __future__ import annotations
 
@@ -8,13 +8,22 @@ from pathlib import Path
 
 
 def alps_checkout() -> Path:
-    """``alps-main/`` (or a standalone ALPS clone)."""
+    """This ALPS clone (``alps/`` or a standalone checkout)."""
     return Path(__file__).resolve().parents[1]
 
 
 def workspace_root() -> Path:
-    """Parent of this checkout: ``ligandparam-main``, ``scission-main``, ``ffpopt-main``."""
+    """Parent of this checkout: ``ligandparam``, ``scission``, ``ffpopt``."""
     return alps_checkout().parent
+
+
+def sibling_checkout(name: str) -> Path | None:
+    """``<workspace>/<name>`` or legacy ``<workspace>/<name>-main``."""
+    root = workspace_root()
+    for folder in (root / name, root / f"{name}-main"):
+        if folder.is_dir():
+            return folder
+    return None
 
 
 def ensure_alps() -> None:

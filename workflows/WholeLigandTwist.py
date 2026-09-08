@@ -87,11 +87,11 @@ def run_whole_ligand_dihed_twist_workflow(
     log = logger if logger is not None else get_logger("alps")
     if fast_wavefront:
         log.warning(
-            "[alps] --fast is ignored: ffpopt-main has no GAU_LOOSE presets"
+            "[alps] --fast is ignored: this ffpopt checkout has no GAU_LOOSE presets"
         )
     if multi_centroid or boltzmann_charges or fit_cli_args:
         log.warning(
-            "[alps] AFFDO extras are not in ffpopt-main; running a plain parent twist"
+            "[alps] AFFDO extras are not in this ffpopt checkout; running a plain parent twist"
         )
     for key in (
         "soft_dihed_restraint",
@@ -101,7 +101,7 @@ def run_whole_ligand_dihed_twist_workflow(
     ):
         if standard_kwargs.pop(key, None):
             log.warning(
-                "[alps] soft-dihed restraint flags are not in ffpopt-main; ignoring"
+                "[alps] soft-dihed restraint flags are not in this ffpopt checkout; ignoring"
             )
 
     pin_math_threads(1)

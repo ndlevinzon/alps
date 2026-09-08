@@ -1,17 +1,10 @@
-"""Developer regression suite for ligandparam / ffpopt / scission.
+"""Developer regression suite for the ALPS orchestrator.
 
-Run after code changes to catch regressions in recipe wiring, logging,
-I/O contracts, and core pure-Python helpers (no AmberTools / Gaussian)::
+Companion unit tests live in ligandparam and scission. This file covers
+ALPS glue plus leftover ffpopt helpers that still live only here
+(no AmberTools / Gaussian)::
 
     python -m unittest tests.test_developer_regression -v
-
-Full developer battery (this file + specialized unit tests)::
-
-    python -m unittest discover -s tests -v
-
-Install validation for end users remains::
-
-    python -m unittest tests.test_install_validation -v
 """
 
 from __future__ import annotations
@@ -27,7 +20,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 _TESTS_DIR = Path(__file__).resolve().parent
 if str(_TESTS_DIR) not in sys.path:
@@ -56,369 +49,7 @@ def _have_split_ffpopt() -> bool:
         return False
 
 
-def _require_rdkit(test: unittest.TestCase) -> None:
-    if not _has_module("rdkit"):
-        test.skipTest("rdkit required for recipe/stage imports")
-
-
-# ---------------------------------------------------------------------------
-# Recipes - registry + setup() stage graphs (contract / wiring)
-# ---------------------------------------------------------------------------
-
-
-class TestRecipeRegistry(unittest.TestCase):
-    def test_available_recipes_matches_registry_keys(self):
-        from ligandparam.recipes.Registry import _REGISTRY, available_recipes
-
-        self.assertEqual(available_recipes(), sorted(_REGISTRY))
-        for expected in (
-            "freeligand",
-            "lazyligand",
-            "lazierligand",
-            "dplazyligand",
-            "dpfreeligand",
-            "sqmligand",
-        ):
-            self.assertIn(expected, _REGISTRY)
-
-    def test_unknown_recipe_raises(self):
-        from ligandparam.recipes.Registry import get_recipe
-
-        with self.assertRaises(ValueError) as ctx:
-            get_recipe("not-a-recipe")
-        self.assertIn("Unknown recipe", str(ctx.exception))
-
-
-class TestRecipeSetupGraphs(unittest.TestCase):
-    """Each registered recipe builds a non-empty, ordered stage list."""
-
-    def setUp(self):
-        _require_rdkit(self)
-
-    def _tmp_recipe_args(self, td: str):
-        cwd = Path(td)
-        return cwd / "ligand.pdb", cwd
-
-    def _assert_tail_parmchk_leap(self, stages):
-        from ligandparam.stages import StageLeap, StageParmChk
-
-        types = [type(s) for s in stages]
-        self.assertEqual(types[-2], StageParmChk)
-        self.assertEqual(types[-1], StageLeap)
-
-    def test_freeligand_setup(self):
-        from ligandparam.recipes.FreeLigand import FreeLigand
-        from ligandparam.stages import (
-            StageInitialize,
-            StageMultiRespFit,
-            StageNormalizeCharge,
-        )
-
-        with tempfile.TemporaryDirectory() as td:
-            inp, cwd = self._tmp_recipe_args(td)
-            recipe = FreeLigand(inp, cwd, net_charge=0, nproc=2, mem=4, logger="stream")
-            recipe.setup()
-            types = [type(s) for s in recipe.stages]
-            self.assertGreaterEqual(len(types), 5)
-            self.assertEqual(types[0], StageInitialize)
-            self.assertIn(StageNormalizeCharge, types)
-            self.assertIn(StageMultiRespFit, types)
-            self._assert_tail_parmchk_leap(recipe.stages)
-            self.assertEqual(recipe.net_charge, 0)
-
-    def test_freeligand_missing_net_charge(self):
-        from ligandparam.recipes.FreeLigand import FreeLigand
-
-        with self.assertRaises(KeyError):
-            FreeLigand("ligand.pdb", "out_dir")
-
-    def test_freeligand_bad_orientation_protocol(self):
-        from ligandparam.recipes.FreeLigand import FreeLigand
-
-        with self.assertRaises(ValueError):
-            FreeLigand(
-                "ligand.pdb",
-                "out_dir",
-                net_charge=0,
-                orientation_protocol="not_a_protocol",
-            )
-
-    def test_lazyligand_setup(self):
-        from ligandparam.recipes.LazyLigand import LazyLigand
-        from ligandparam.stages import StageInitialize, StageLazyResp
-
-        with tempfile.TemporaryDirectory() as td:
-            inp, cwd = self._tmp_recipe_args(td)
-            recipe = LazyLigand(inp, cwd, net_charge=-1, logger="stream")
-            recipe.setup()
-            types = [type(s) for s in recipe.stages]
-            self.assertEqual(types[0], StageInitialize)
-            self.assertIn(StageLazyResp, types)
-            self._assert_tail_parmchk_leap(recipe.stages)
-
-    def test_lazierligand_setup(self):
-        from ligandparam.recipes.LazierLigand import LazierLigand
-        from ligandparam.stages import StageInitialize, StageNormalizeCharge
-
-        with tempfile.TemporaryDirectory() as td:
-            inp, cwd = self._tmp_recipe_args(td)
-            recipe = LazierLigand(inp, cwd, net_charge=0, logger="stream")
-            recipe.setup()
-            types = [type(s) for s in recipe.stages]
-            self.assertEqual(types[0], StageInitialize)
-            self.assertIn(StageNormalizeCharge, types)
-            self.assertEqual(sum(1 for t in types if t.__name__ == "StageParmChk"), 1)
-            self._assert_tail_parmchk_leap(recipe.stages)
-
-    def test_dpligand_setup_includes_dpminimize(self):
-        from ligandparam.recipes.DpLazyLigand import DPLigand
-        from ligandparam.stages import DPMinimize, StageInitialize
-
-        with tempfile.TemporaryDirectory() as td:
-            inp, cwd = self._tmp_recipe_args(td)
-            recipe = DPLigand(inp, cwd, net_charge=0, logger="stream")
-            recipe.setup()
-            types = [type(s) for s in recipe.stages]
-            self.assertEqual(types[0], StageInitialize)
-            self.assertIn(DPMinimize, types)
-            self._assert_tail_parmchk_leap(recipe.stages)
-
-    def test_dpfreeligand_setup(self):
-        from ligandparam.recipes.DpFreeLigand import DPFreeLigand
-        from ligandparam.stages import DPMinimize, StageInitialize, StageMultiRespFit
-
-        with tempfile.TemporaryDirectory() as td:
-            inp, cwd = self._tmp_recipe_args(td)
-            recipe = DPFreeLigand(inp, cwd, net_charge=0, logger="stream")
-            recipe.setup()
-            types = [type(s) for s in recipe.stages]
-            self.assertEqual(types[0], StageInitialize)
-            self.assertIn(DPMinimize, types)
-            self.assertIn(StageMultiRespFit, types)
-            self._assert_tail_parmchk_leap(recipe.stages)
-
-    def test_sqmligand_setup(self):
-        from ligandparam.recipes.OptLigand import SQMLigand
-        from ligandparam.stages import StageInitialize, StageLazyResp
-        from ligandparam.stages.DeepMd import DPMinimize
-
-        with tempfile.TemporaryDirectory() as td:
-            inp, cwd = self._tmp_recipe_args(td)
-            recipe = SQMLigand(inp, cwd, net_charge=0, logger="stream")
-            recipe.setup()
-            types = [type(s) for s in recipe.stages]
-            self.assertEqual(types[0], StageInitialize)
-            self.assertIn(StageLazyResp, types)
-            self.assertNotIn(DPMinimize, types)
-            self._assert_tail_parmchk_leap(recipe.stages)
-
-    def test_lazierligand_execute_forwards_overrides(self):
-        """LazierLigand must forward dry_run/nproc/mem (not hardcode 1/1)."""
-        from ligandparam.recipes.LazierLigand import LazierLigand
-
-        with tempfile.TemporaryDirectory() as td:
-            inp, cwd = self._tmp_recipe_args(td)
-            recipe = LazierLigand(inp, cwd, net_charge=0, nproc=4, logger="stream")
-            recipe.setup()
-            seen = []
-
-            def _capture(stage):
-                def _exec(*, dry_run=False, nproc=None, mem=None):
-                    seen.append((dry_run, nproc, mem))
-
-                return _exec
-
-            for stage in recipe.stages:
-                stage.execute = _capture(stage)
-            recipe.execute(dry_run=True, nproc=8, mem=16)
-            self.assertTrue(seen)
-            self.assertTrue(all(t == (True, 8, 16) for t in seen))
-
-    def test_dihed_correct_does_not_append_twist_stage(self):
-        """ligandparam recipes record dihed_correct; ALPS runs the twist."""
-        from ligandparam.recipes.FreeLigand import FreeLigand
-
-        with tempfile.TemporaryDirectory() as td:
-            inp, cwd = self._tmp_recipe_args(td)
-            recipe = FreeLigand(
-                inp,
-                cwd,
-                net_charge=0,
-                dihed_correct=True,
-                dihed_model="xtb",
-                dihed_delta=15,
-                logger="stream",
-            )
-            recipe.setup()
-            self.assertTrue(recipe.dihed_correct)
-            self.assertEqual(recipe.dihed_model, "xtb")
-            self.assertEqual(recipe.dihed_delta, 15)
-            names = [type(s).__name__ for s in recipe.stages]
-            self.assertNotIn("StageDihedTwistCorrection", names)
-
-    def test_dry_run_execute_invokes_each_stage(self):
-        """Driver.execute(dry_run=True) must call every stage.execute."""
-        from ligandparam.recipes.LazierLigand import LazierLigand
-
-        with tempfile.TemporaryDirectory() as td:
-            inp, cwd = self._tmp_recipe_args(td)
-            recipe = LazierLigand(inp, cwd, net_charge=0, logger="stream")
-            recipe.setup()
-            calls = []
-            for stage in recipe.stages:
-                stage.execute = MagicMock(
-                    side_effect=lambda *a, _s=stage, **k: calls.append(_s.stage_name)
-                )
-            recipe.execute(dry_run=True)
-            self.assertEqual(len(calls), len(recipe.stages))
-            self.assertEqual(calls, [s.stage_name for s in recipe.stages])
-
-    def test_every_registry_recipe_uses_common_builders(self):
-        """Each registry entry builds stages via recipes.common (smoke)."""
-        from ligandparam.recipes.Registry import _REGISTRY, get_recipe
-
-        for name, path_cls in _REGISTRY.items():
-            mod_path = path_cls.split(":")[0]
-            mod = importlib.import_module(mod_path)
-            src = Path(mod.__file__).read_text(encoding="utf-8")
-            self.assertIn(
-                "ligandparam.recipes.Common",
-                src,
-                f"{name} should import recipes.common builders",
-            )
-            with tempfile.TemporaryDirectory() as td:
-                inp, cwd = self._tmp_recipe_args(td)
-                recipe = get_recipe(
-                    name,
-                    in_filename=str(inp),
-                    cwd=str(cwd),
-                    net_charge=0,
-                    logger="stream",
-                )
-                recipe.setup()
-                self.assertGreater(len(recipe.stages), 0, f"{name} setup() empty")
-                self._assert_tail_parmchk_leap(recipe.stages)
-
-
-# ---------------------------------------------------------------------------
-# Stages - charge normalize + abstract contracts
-# ---------------------------------------------------------------------------
-
-
-class TestStageChargeNormalize(unittest.TestCase):
-    def _stage(self, net_charge=0, precision=0.001, decimals=3):
-        from ligandparam.stages.Charge import StageNormalizeCharge
-
-        st = StageNormalizeCharge.__new__(StageNormalizeCharge)
-        st.net_charge = net_charge
-        st.precision = precision
-        st.decimals = decimals
-        st.logger = MagicMock()
-        return st
-
-    def test_nonzero_net_charge(self):
-        st = self._stage(net_charge=1, precision=0.001, decimals=3)
-        q = [0.4, 0.3, 0.2]
-        rounded, total, diff = st.check_charge(q)
-        out = st.normalize(rounded, diff)
-        _, new_total, _ = st.check_charge(out)
-        self.assertTrue(abs(new_total - 1.0) < 0.002)
-
-    def test_zero_count_safe(self):
-        st = self._stage(net_charge=0)
-        out = st.normalize([0.0, 0.0], 0.0)
-        self.assertEqual(list(out), [0.0, 0.0])
-
-    def test_large_delta_warns(self):
-        st = self._stage(net_charge=1)
-        out = st.normalize([0.0, 0.0], 0.05)
-        self.assertAlmostEqual(float(sum(out)), 0.05, places=6)
-        st.logger.warning.assert_called()
-
-
-class TestCommonRecipeTail(unittest.TestCase):
-    def test_charge_update_parmchk_leap_order(self):
-        _require_rdkit(self)
-        from ligandparam.recipes.Common import charge_update_parmchk_leap_stages
-        from ligandparam.stages import StageLeap, StageParmChk, StageUpdate
-
-        recipe = SimpleNamespace(cwd=Path("."), net_charge=0, logger=None, kwargs={})
-        stages = charge_update_parmchk_leap_stages(
-            recipe=recipe,
-            initial_mol2="a.mol2",
-            final_mol2="b.mol2",
-            nonminimized_mol2="c.mol2",
-            frcmod="x.frcmod",
-            lib="x.lib",
-        )
-        self.assertEqual(
-            [type(s) for s in stages],
-            [StageUpdate, StageParmChk, StageLeap],
-        )
-
-    def test_init_normalize_center_and_gaussian_kwargs(self):
-        _require_rdkit(self)
-        from ligandparam.recipes.Common import (
-            gaussian_runtime_kwargs,
-            init_normalize_center_stages,
-            rotation_stage_kwargs,
-        )
-        from ligandparam.stages import StageDisplaceMol, StageInitialize, StageNormalizeCharge
-
-        recipe = SimpleNamespace(
-            in_filename=Path("lig.pdb"),
-            cwd=Path("."),
-            net_charge=0,
-            logger=None,
-            kwargs={},
-            nproc=2,
-            mem=4,
-            gaussian_root=None,
-            gauss_exedir=None,
-            gaussian_binary=None,
-            gaussian_scratch=None,
-            force_gaussian_rerun=False,
-            orientation_protocol="so3_n28",
-            theory={"low": "HF/6-31G*", "high": "PBE1PBE/6-31G*"},
-        )
-        stages = init_normalize_center_stages(
-            recipe=recipe,
-            initial_mol2="i.mol2",
-            centered_out="c.mol2",
-        )
-        self.assertEqual(
-            [type(s) for s in stages],
-            [StageInitialize, StageNormalizeCharge, StageDisplaceMol],
-        )
-        gkw = gaussian_runtime_kwargs(recipe)
-        self.assertEqual(gkw["nproc"], 2)
-        self.assertEqual(gkw["mem"], 4)
-        self.assertIn("force_gaussian_rerun", gkw)
-        rkw = rotation_stage_kwargs(recipe)
-        self.assertEqual(rkw["orientation_protocol"], "so3_n28")
-
-
-class TestAbstractStageTemplate(unittest.TestCase):
-    def test_execute_calls_run_and_tracks_new_files(self):
-        from ligandparam.stages.AbstractStage import AbstractStage
-
-        class _Tiny(AbstractStage):
-            def _run(self, dry_run=False, nproc=None, mem=None):
-                self.seen = (dry_run, nproc, mem)
-                (self.cwd / "created.txt").write_text("x", encoding="utf-8")
-                return "ok"
-
-        with tempfile.TemporaryDirectory() as td:
-            cwd = Path(td)
-            stage = _Tiny("Tiny", cwd / "in.pdb", cwd, logger=MagicMock())
-            stage.required = []
-            out = stage.execute(dry_run=True, nproc=3, mem=7)
-            self.assertEqual(out, "ok")
-            self.assertEqual(stage.seen, (True, 3, 7))
-            self.assertIn("created.txt", stage.new_files)
-
-
-@unittest.skipUnless(_have_split_ffpopt(), "split src/ffpopt not present (using ffpopt-main)")
+@unittest.skipUnless(_have_split_ffpopt(), "split src/ffpopt not present (using independent ffpopt)")
 class TestWavefrontMixinHelpers(unittest.TestCase):
     def test_precheck_geometry_clash_reports_error(self):
         from ffpopt.scan.WavefrontMixins import precheck_geometry_clash
@@ -652,23 +283,12 @@ class TestWavefrontMixinHelpers(unittest.TestCase):
         self.assertIn("angles=80,90", line)
 
 
-class TestScissionHelpers(unittest.TestCase):
-    def test_safe_name_and_param_key(self):
-        from scission.Frcmod import _normalize_param_name_to_key
-        from scission.Writers import safe_name
-
-        self.assertEqual(safe_name("foo/bar"), "foo_bar")
-        self.assertIsNone(_normalize_param_name_to_key("not_a_dihe"))
-        key = _normalize_param_name_to_key("LIG_ca-ca-c-o")
-        self.assertEqual(len(key), 4)
-
-
 # ---------------------------------------------------------------------------
 # Packaged FFPOPT_* defaults JSON
 # ---------------------------------------------------------------------------
 
 
-@unittest.skipUnless(_have_split_ffpopt(), "split src/ffpopt not present (using ffpopt-main)")
+@unittest.skipUnless(_have_split_ffpopt(), "split src/ffpopt not present (using independent ffpopt)")
 class TestEnvDefaults(unittest.TestCase):
     def tearDown(self):
         from ffpopt.runtime.EnvDefaults import clear_defaults_cache
@@ -782,7 +402,7 @@ class TestEnvDefaults(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-@unittest.skipUnless(_have_split_ffpopt(), "split src/ffpopt not present (using ffpopt-main)")
+@unittest.skipUnless(_have_split_ffpopt(), "split src/ffpopt not present (using independent ffpopt)")
 class TestLoggingContracts(unittest.TestCase):
     def setUp(self):
         from ffpopt.runtime import Console as console_mod
@@ -859,64 +479,6 @@ class TestLoggingContracts(unittest.TestCase):
         line = format_console_line("[affdo] band \u00b10.5\u00b0", tag="ffpopt")
         self.assertTrue(line.isascii())
         self.assertIn("+/-0.5 deg", line)
-
-    def test_success_quote_skips_comments_and_empty(self):
-        from ligandparam.Log import (
-            dihed_correct_ok,
-            format_reminder_line,
-            load_quotes,
-            log_success_quote,
-        )
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            path = root / "quotes.txt"
-            path.write_text(
-                "# comment\n\n  first quote  \n\"wrapped\"\n",
-                encoding="utf-8",
-            )
-            self.assertEqual(load_quotes(path), ["first quote", "wrapped"])
-            empty = root / "empty.txt"
-            empty.write_text("# only comments\n\n", encoding="utf-8")
-            self.assertEqual(load_quotes(empty), [])
-            self.assertIsNone(log_success_quote(quotes_path=empty))
-
-            self.assertEqual(
-                format_reminder_line("hello"),
-                "LIGANDPARAM reminds you: hello",
-            )
-            self.assertEqual(
-                format_reminder_line(
-                    '"It is nothing to die; it is dreadful not to live."'
-                    " - Victor Hugo, Les Miserables"
-                ),
-                'LIGANDPARAM reminds you: "It is nothing to die; '
-                'it is dreadful not to live." - Victor Hugo, Les Miserables',
-            )
-            self.assertFalse(dihed_correct_ok(None))
-            self.assertFalse(dihed_correct_ok({"merged_frcmod": "/no/such.frcmod"}))
-            frc = root / "out.frcmod"
-            frc.write_text("DIHE\n", encoding="utf-8")
-            self.assertTrue(dihed_correct_ok({"merged_frcmod": str(frc)}))
-            self.assertFalse(
-                dihed_correct_ok(
-                    {
-                        "merged_frcmod": str(frc),
-                        "fragments": [{"fragment_id": "f1", "status": "failed"}],
-                    }
-                )
-            )
-            self.assertFalse(
-                dihed_correct_ok({"merged_frcmod": str(frc)}, dry_run=True)
-            )
-            with patch("sys.stdout", io.StringIO()) as buf:
-                picked = log_success_quote(quotes_path=path)
-            self.assertIn(picked, ("first quote", "wrapped"))
-            out = buf.getvalue()
-            self.assertIn("[ligandparam]", out)
-            self.assertIn("INFO:", out)
-            self.assertIn("LIGANDPARAM reminds you:", out)
-            self.assertNotIn('reminds you: "', out)
 
     def test_print_affdo_strips_non_ascii(self):
         from ffpopt.affdo.AffdoLog import print_affdo
@@ -1069,7 +631,7 @@ class TestLoggingContracts(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-@unittest.skipUnless(_have_split_ffpopt(), "split src/ffpopt not present (using ffpopt-main)")
+@unittest.skipUnless(_have_split_ffpopt(), "split src/ffpopt not present (using independent ffpopt)")
 class TestAffdoLogging(unittest.TestCase):
     def test_describe_affdo_extras_default_and_full(self):
         from ffpopt.affdo.AffdoLog import describe_affdo_extras
@@ -1867,104 +1429,11 @@ class TestAffdoLogging(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# ligandparam I/O - amber bundle resolution
-# ---------------------------------------------------------------------------
-
-
-class TestAmberBundleIO(unittest.TestCase):
-    def _touch_triplet(self, work_dir: Path, stem: str) -> None:
-        (work_dir / f"{stem}.mol2").write_text("@<TRIPOS>MOLECULE\n", encoding="utf-8")
-        (work_dir / f"{stem}.lib").write_text("!entry\n", encoding="utf-8")
-        (work_dir / f"{stem}.frcmod").write_text("Remark line\n", encoding="utf-8")
-
-    def test_resolve_explicit_paths(self):
-        from ligandparam.io.AmberBundle import AmberLigandBundle, resolve_getparam_bundle
-
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            self._touch_triplet(root, "chaps")
-            bundle = resolve_getparam_bundle(
-                mol2=root / "chaps.mol2",
-                lib=root / "chaps.lib",
-                frcmod=root / "chaps.frcmod",
-            )
-            self.assertIsInstance(bundle, AmberLigandBundle)
-            self.assertEqual(bundle.stem, "chaps")
-            self.assertEqual(bundle.work_dir, root.resolve())
-
-    def test_resolve_getparam_layout_with_label(self):
-        from ligandparam.io.AmberBundle import resolve_getparam_bundle
-
-        with tempfile.TemporaryDirectory() as td:
-            cwd = Path(td)
-            work = cwd / "CHA3" / "CHA"
-            work.mkdir(parents=True)
-            self._touch_triplet(work, "chaps")
-            bundle = resolve_getparam_bundle(
-                cwd=cwd, data_cwd="CHA3", resname="CHA", label="chaps"
-            )
-            self.assertEqual(bundle.stem, "chaps")
-            self.assertEqual(bundle.work_dir, work.resolve())
-
-    def test_missing_triplet_raises(self):
-        from ligandparam.io.AmberBundle import resolve_getparam_bundle
-
-        with tempfile.TemporaryDirectory() as td:
-            cwd = Path(td)
-            (cwd / "A" / "B").mkdir(parents=True)
-            with self.assertRaises(FileNotFoundError):
-                resolve_getparam_bundle(
-                    cwd=cwd, data_cwd="A", resname="B", label="x"
-                )
-
-    def test_to_scission_input(self):
-        from ligandparam.io.AmberBundle import resolve_getparam_bundle
-
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            self._touch_triplet(root, "LIG")
-            bundle = resolve_getparam_bundle(
-                mol2=root / "LIG.mol2",
-                lib=root / "LIG.lib",
-                frcmod=root / "LIG.frcmod",
-            )
-            inp = bundle.to_scission_input()
-            self.assertEqual(inp["mol2_path"], bundle.mol2)
-            self.assertEqual(inp["lib_path"], bundle.lib)
-            self.assertEqual(inp["frcmod_path"], bundle.frcmod)
-
-
-# ---------------------------------------------------------------------------
 # Dihed option helpers + workflow bond contracts
 # ---------------------------------------------------------------------------
 
 
 class TestDihedOptionsAndBonds(unittest.TestCase):
-    def test_pop_and_apply_dihed_options(self):
-        from ligandparam.recipes.DihedOptions import apply_dihed_options, pop_dihed_options
-
-        kwargs = {
-            "dihed_correct": True,
-            "dihed_model": "xtb",
-            "dihed_delta": 5,
-            "keep": 1,
-        }
-        opts = pop_dihed_options(dict(kwargs))
-        self.assertTrue(opts["dihed_correct"])
-        self.assertEqual(opts["dihed_delta"], 5)
-        obj = SimpleNamespace()
-        apply_dihed_options(obj, kwargs)
-        self.assertTrue(obj.dihed_correct)
-        self.assertEqual(obj.dihed_model, "xtb")
-        self.assertEqual(kwargs, {"keep": 1})
-
-    def test_coerce_fragment_config(self):
-        from ligandparam.recipes.DihedOptions import coerce_fragment_config
-
-        self.assertIsNone(coerce_fragment_config(None))
-        cfg = coerce_fragment_config({"angle_step": 15, "cap_strategy": "hydrogen"})
-        self.assertEqual(cfg["angle_step"], 15)
-        self.assertEqual(coerce_fragment_config("pass"), "pass")
 
     def test_normalize_bond_pairs0(self):
         if not _have_split_ffpopt():
@@ -1991,204 +1460,6 @@ class TestDihedOptionsAndBonds(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# scission - models + merge + torsions on synthetic ligand
-# ---------------------------------------------------------------------------
-
-
-class TestScissionFunctions(unittest.TestCase):
-    def _butane_like_ligand(self):
-        """Linear C4 chain with hydrogens - rotatable C-C bonds."""
-        from scission.Models import Atom, Bond, Ligand
-
-        atoms = []
-        coords = [
-            (0.0, 0.0, 0.0),
-            (1.5, 0.0, 0.0),
-            (3.0, 0.0, 0.0),
-            (4.5, 0.0, 0.0),
-        ]
-        for i, xyz in enumerate(coords, start=1):
-            atoms.append(
-                Atom(
-                    index=i,
-                    name=f"C{i}",
-                    element="C",
-                    atom_type="c3",
-                    charge=-0.1,
-                    coords=xyz,
-                )
-            )
-        atoms.append(Atom(5, "H1", "H", "hc", 0.1, (-1.0, 0.0, 0.0)))
-        atoms.append(Atom(6, "H4", "H", "hc", 0.1, (5.5, 0.0, 0.0)))
-        bonds = [
-            Bond(1, 1, 2, "1"),
-            Bond(2, 2, 3, "1"),
-            Bond(3, 3, 4, "1"),
-            Bond(4, 1, 5, "1"),
-            Bond(5, 4, 6, "1"),
-        ]
-        return Ligand(
-            name="but",
-            atoms=atoms,
-            bonds=bonds,
-            lib_atom_names=[a.name for a in atoms],
-            lib_atom_types={a.name: a.atom_type for a in atoms},
-            frcmod_text="",
-            mol2_path=Path("but.mol2"),
-            lib_path=Path("but.lib"),
-            frcmod_path=Path("but.frcmod"),
-        )
-
-    def test_find_rotatable_bonds_and_enumerate_torsions(self):
-        from scission.Torsions import enumerate_torsions, find_rotatable_bonds
-
-        lig = self._butane_like_ligand()
-        rots = find_rotatable_bonds(lig)
-        self.assertGreaterEqual(len(rots), 1)
-        tors = enumerate_torsions(lig)
-        self.assertGreaterEqual(len(tors), 1)
-        for t in tors:
-            self.assertEqual(len(t.atom_indices), 4)
-            self.assertEqual(len(t.bond), 2)
-
-    def test_fragment_config_defaults_and_from_dict(self):
-        from scission.Models import FragmentConfig
-
-        cfg = FragmentConfig()
-        self.assertTrue(hasattr(cfg, "angle_step") or hasattr(cfg, "cap_strategy"))
-        cfg2 = FragmentConfig.from_dict({"angle_step": 15})
-        self.assertEqual(cfg2.angle_step, 15)
-
-    def test_write_fragment_index_and_merge_accumulate(self):
-        from scission.Merge import _load_fragment_update
-        from scission.Models import SelectedFragment
-        from scission.Writers import write_fragment_index
-
-        frag = SelectedFragment(
-            fragment_id="frag_0001",
-            source_candidate_id="cand_a",
-            retained_atoms=[0, 1, 2],
-            cut_bonds=[(2, 3)],
-            cap_atoms=[],
-            torsions=["t1"],
-            fit_torsions=[],
-            parent_atom_map={0: 0, 1: 1, 2: 2},
-            manifest_path=Path("frags/frag_0001/manifest.json"),
-        )
-        with tempfile.TemporaryDirectory() as td:
-            out = Path(td)
-            path = write_fragment_index([frag], out)
-            self.assertTrue(path.is_file())
-
-            def _frcmod(lines):
-                return (
-                    "Remark line goes here\nMASS\n\nBOND\n\nANGLE\n\nDIHE\n"
-                    + "".join(f"{ln}\n" for ln in lines)
-                    + "\nIMPROPER\n\nNONB\n\n"
-                )
-
-            frag_dir = out / "frag_0001"
-            frag_dir.mkdir()
-            (frag_dir / "it01.frcmod").write_text(
-                _frcmod(["c3-c3-c3-c3 1 1.00 0.0 1.", "c3-c3-c3-n  1 2.00 0.0 1."])
-            )
-            (frag_dir / "it02.frcmod").write_text(
-                _frcmod(["c3-c3-c3-n  1 3.50 0.0 1."])
-            )
-            update = _load_fragment_update(frag_dir)
-            self.assertIn(("c3", "c3", "c3", "c3"), update["dihe_groups"])
-            self.assertIn(("c3", "c3", "c3", "n"), update["dihe_groups"])
-            # Later iteration overwrites shared key; earlier-only key survives.
-            n_lines = update["dihe_groups"][("c3", "c3", "c3", "n")]
-            self.assertTrue(any("3.50" in ln for ln in n_lines))
-            self.assertFalse(any("2.00" in ln for ln in n_lines))
-            c3_lines = update["dihe_groups"][("c3", "c3", "c3", "c3")]
-            self.assertTrue(any("1.00" in ln for ln in c3_lines))
-
-    def test_merge_dihe_empty_later_iteration_keeps_earlier(self):
-        """An empty later itXX.frcmod must not wipe earlier DIHE accumulation."""
-        from scission.Merge import _load_fragment_update
-
-        def _frcmod(lines):
-            return (
-                "Remark line goes here\nMASS\n\nBOND\n\nANGLE\n\nDIHE\n"
-                + "".join(f"{ln}\n" for ln in lines)
-                + "\nIMPROPER\n\nNONB\n\n"
-            )
-
-        with tempfile.TemporaryDirectory() as td:
-            frag_dir = Path(td) / "frag_0001"
-            frag_dir.mkdir()
-            (frag_dir / "it01.frcmod").write_text(
-                _frcmod(["c3-c3-c3-c3 1 1.00 0.0 1."])
-            )
-            (frag_dir / "it02.frcmod").write_text(_frcmod([]))
-            update = _load_fragment_update(frag_dir)
-            self.assertIn(("c3", "c3", "c3", "c3"), update["dihe_groups"])
-
-    def test_merge_two_fragments_same_scanned_bytype_key(self):
-        """bytype collisions: keep first scanned fragment, do not abort."""
-        import warnings
-
-        from scission.Merge import MergeWarning, merge_fragment_frcmods
-
-        def _frcmod(lines):
-            return (
-                "Remark line goes here\nMASS\n\nBOND\n\nANGLE\n\nDIHE\n"
-                + "".join(f"{ln}\n" for ln in lines)
-                + "\nIMPROPER\n\nNONB\n\n"
-            )
-
-        def _fit_json(param: str):
-            return json.dumps(
-                {
-                    "params": {param: {"nprim": 1}},
-                    "systems": [
-                        {
-                            "params": {param: {"nprim": 1}},
-                            "profiles": [{"plots": [param]}],
-                        }
-                    ],
-                }
-            )
-
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            parent = root / "parent.frcmod"
-            parent.write_text(_frcmod(["c3-c3-n4-c3 1 0.50 0.0 1."]))
-            out = root / "merged.frcmod"
-            frag6 = root / "fragment_6"
-            frag8 = root / "fragment_8"
-            for frag, pk in ((frag6, "1.10"), (frag8, "2.20")):
-                frag.mkdir()
-                (frag / "it01.frcmod").write_text(
-                    _frcmod([f"c3-c3-n4-c3 1 {pk} 0.0 1."])
-                )
-                (frag / "it01.fit.json").write_text(
-                    _fit_json("LIG_c3-c3-n4-c3")
-                )
-                (frag / "fit_torsions.json").write_text("[]")
-
-            with warnings.catch_warnings(record=True) as caught:
-                warnings.simplefilter("always")
-                report = merge_fragment_frcmods(
-                    parent_frcmod_path=parent,
-                    output_frcmod_path=out,
-                    fragment_dirs=[frag6, frag8],
-                )
-            self.assertTrue(out.is_file())
-            self.assertTrue(
-                any(issubclass(w.category, MergeWarning) for w in caught)
-            )
-            self.assertEqual(len(report["conflicts"]), 1)
-            self.assertEqual(
-                report["conflicts"][0]["resolution"], "first_scanned_wins"
-            )
-            self.assertIn("1.10", out.read_text())
-            self.assertNotIn("2.20", out.read_text())
-
-
-# ---------------------------------------------------------------------------
 # ffpopt - constraints, dihedrals, wavefront policy, runtime helpers
 # ---------------------------------------------------------------------------
 
@@ -2197,7 +1468,7 @@ class TestScissionFunctions(unittest.TestCase):
 # Dihedral Fourier / ParmEd / scan alignment
 # ---
 
-@unittest.skipUnless(_have_split_ffpopt(), "split src/ffpopt not present (using ffpopt-main)")
+@unittest.skipUnless(_have_split_ffpopt(), "split src/ffpopt not present (using independent ffpopt)")
 class TestDihedFitHelpers(unittest.TestCase):
     def test_merge_duplicate_period_prims(self):
         from ffpopt.dihed.Dihedrals import (
@@ -2667,7 +1938,7 @@ class TestDihedFitHelpers(unittest.TestCase):
 # AIMNet aliases, GPU worker cap, and fast model policy
 # ---
 
-@unittest.skipUnless(_have_split_ffpopt(), "split src/ffpopt not present (using ffpopt-main)")
+@unittest.skipUnless(_have_split_ffpopt(), "split src/ffpopt not present (using independent ffpopt)")
 class TestAimnetPolicy(unittest.TestCase):
     def test_aimnet_model_aliases_and_fast_policy(self):
         from ffpopt.ase.Aimnet import (
@@ -2757,7 +2028,7 @@ class TestAimnetPolicy(unittest.TestCase):
 # GeomOpt facades, geomeTRIC scratch, linear-torsion
 # ---
 
-@unittest.skipUnless(_have_split_ffpopt(), "split src/ffpopt not present (using ffpopt-main)")
+@unittest.skipUnless(_have_split_ffpopt(), "split src/ffpopt not present (using independent ffpopt)")
 class TestGeomOptHelpers(unittest.TestCase):
     def test_constraints_to_geometric(self):
         from ffpopt.geom.Constraints import Constraint, to_geometric
@@ -2927,7 +2198,7 @@ class TestGeomOptHelpers(unittest.TestCase):
 # Wavefront spawn, rescue, checkpoint, and pickle facades
 # ---
 
-@unittest.skipUnless(_have_split_ffpopt(), "split src/ffpopt not present (using ffpopt-main)")
+@unittest.skipUnless(_have_split_ffpopt(), "split src/ffpopt not present (using independent ffpopt)")
 class TestWavefrontPolicy(unittest.TestCase):
     def test_is_soft_opt_and_evaluate_policy(self):
         from ffpopt.geom.GeomOpt import is_soft_opt_recovery
@@ -3394,7 +2665,7 @@ class TestWavefrontPolicy(unittest.TestCase):
 # Fast presets and sander-like low-level scans
 # ---
 
-@unittest.skipUnless(_have_split_ffpopt(), "split src/ffpopt not present (using ffpopt-main)")
+@unittest.skipUnless(_have_split_ffpopt(), "split src/ffpopt not present (using independent ffpopt)")
 class TestFastWavefront(unittest.TestCase):
     def test_fast_presets_keep_delta(self):
         from ffpopt.runtime.FastWavefront import (
@@ -3516,7 +2787,7 @@ class TestFastWavefront(unittest.TestCase):
 # CPU lease, resplit, and never-starve
 # ---
 
-@unittest.skipUnless(_have_split_ffpopt(), "split src/ffpopt not present (using ffpopt-main)")
+@unittest.skipUnless(_have_split_ffpopt(), "split src/ffpopt not present (using independent ffpopt)")
 class TestCpuBudget(unittest.TestCase):
     def test_cpu_budget_fair_share(self):
         from ffpopt.runtime.CpuBudget import cpu_lease_weight, fair_share_leases
@@ -3897,7 +3168,7 @@ class TestCpuBudget(unittest.TestCase):
 # Fragment / whole-ligand twist batches
 # ---
 
-@unittest.skipUnless(_have_split_ffpopt(), "split src/ffpopt not present (using ffpopt-main)")
+@unittest.skipUnless(_have_split_ffpopt(), "split src/ffpopt not present (using independent ffpopt)")
 class TestTwistBatching(unittest.TestCase):
     def test_fragment_twist_done_sentinel(self):
         from alps.workflows import (
@@ -4012,33 +3283,6 @@ class TestTwistBatching(unittest.TestCase):
                 clear_defaults_cache()
 
 
-# ---
-# ParmHelper public names
-# ---
-
-class TestParmHelperExports(unittest.TestCase):
-    def test_parmhelper_saveparm_exported(self):
-        import ast
-        from pathlib import Path
-
-        from _paths import workspace_root
-
-        root = workspace_root()
-        utils = root / "ligandparam-main" / "multiresp" / "ParmEdUtils.py"
-        helper = root / "ligandparam-main" / "multiresp" / "ParmHelper.py"
-        if not utils.is_file():
-            self.skipTest("ligandparam-main not checked out beside ALPS")
-        util_names = {
-            n.name
-            for n in ast.parse(utils.read_text(encoding="utf-8")).body
-            if isinstance(n, ast.FunctionDef)
-        }
-        self.assertIn("SaveParm", util_names)
-        text = helper.read_text(encoding="utf-8")
-        self.assertIn("SaveParm", text)
-        self.assertIn("from ligandparam.multiresp.ParmEdUtils import", text)
-
-
 # ---------------------------------------------------------------------------
 # Parametrization defaults isolation
 # ---------------------------------------------------------------------------
@@ -4077,13 +3321,12 @@ class TestGitTrackedModuleCase(unittest.TestCase):
             ["git", "ls-files", "."], cwd=root, text=True
         ).splitlines()
         tracked = {p.replace("\\", "/") for p in raw}
-        # git ls-files paths are repo-relative; strip this checkout prefix.
-        prefix = "alps-main/"
-        tracked = {
-            p[len(prefix) :] if p.startswith(prefix) else p for p in tracked
-        }
+        for prefix in ("alps-main/", "alps/"):
+            tracked = {
+                p[len(prefix) :] if p.startswith(prefix) else p for p in tracked
+            }
         if not tracked:
-            self.skipTest("alps-main is not git-tracked yet")
+            self.skipTest("ALPS is not git-tracked yet")
         required = {p.replace("\\", "/") for p in self._REQUIRED}
         tracked_wrong = [
             path
@@ -4186,7 +3429,7 @@ class TestSrcImportGraph(unittest.TestCase):
         if not package_root.is_dir():
             return hits
         for fp in package_root.rglob("*.py"):
-            if "__pycache__" in fp.parts:
+            if "__pycache__" in fp.parts or "tests" in fp.parts:
                 continue
             text = fp.read_text(encoding="utf-8", errors="replace")
             try:
@@ -4207,47 +3450,43 @@ class TestSrcImportGraph(unittest.TestCase):
         return hits
 
     def test_ligandparam_does_not_import_ffpopt_scission_or_alps(self):
-        from _paths import workspace_root
+        from _paths import sibling_checkout
 
-        root = workspace_root() / "ligandparam-main"
-        if not root.is_dir():
-            self.skipTest("ligandparam-main not checked out")
+        root = sibling_checkout("ligandparam")
+        if root is None:
+            self.skipTest("ligandparam not checked out")
         hits = self._banned_top_level_imports(
             root, frozenset({"ffpopt", "scission", "alps"})
         )
         self.assertEqual(hits, [], "ligandparam imports companions:\n" + "\n".join(hits))
 
     def test_scission_does_not_import_ffpopt_ligandparam_or_alps(self):
-        from _paths import workspace_root
+        from _paths import sibling_checkout
 
-        root = workspace_root() / "scission-main"
-        if not root.is_dir():
-            self.skipTest("scission-main not checked out")
+        root = sibling_checkout("scission")
+        if root is None:
+            self.skipTest("scission not checked out")
         hits = self._banned_top_level_imports(
             root, frozenset({"ffpopt", "ligandparam", "alps"})
         )
         self.assertEqual(hits, [], "scission imports companions:\n" + "\n".join(hits))
 
     def test_ffpopt_does_not_import_scission_ligandparam_or_alps(self):
-        from _paths import workspace_root
+        from _paths import sibling_checkout
 
-        root = (
-            workspace_root()
-            / "ffpopt-main"
-            / "src"
-            / "python"
-            / "lib"
-            / "ffpopt"
-        )
+        checkout = sibling_checkout("ffpopt")
+        if checkout is None:
+            self.skipTest("ffpopt not checked out")
+        root = checkout / "src" / "python" / "lib" / "ffpopt"
         if not root.is_dir():
-            self.skipTest("ffpopt-main not checked out")
+            self.skipTest("ffpopt python package not found")
         hits = self._banned_top_level_imports(
             root, frozenset({"ligandparam", "alps"})
         )
         self.assertEqual(hits, [], "ffpopt imports ALPS/ligandparam:\n" + "\n".join(hits))
 
 
-@unittest.skipUnless(_have_split_ffpopt(), "split src/ffpopt not present (using ffpopt-main)")
+@unittest.skipUnless(_have_split_ffpopt(), "split src/ffpopt not present (using independent ffpopt)")
 class TestGaussianOrientationBudget(unittest.TestCase):
     def test_mem_is_split_not_replicated(self):
         from ffpopt.runtime.FastWavefront import (
@@ -4275,74 +3514,6 @@ class TestGaussianOrientationBudget(unittest.TestCase):
             60, 28, 1
         )
         self.assertEqual((n_workers, job_nproc, job_mem), (1, 60, 1))
-
-    def test_ligandparam_cpu_budget_matches_gaussian_split(self):
-        from ligandparam.runtime.CpuBudget import split_gaussian_orientation_budget
-
-        n_workers, job_nproc, job_mem = split_gaussian_orientation_budget(
-            60, 28, 32
-        )
-        self.assertGreaterEqual(job_mem, 4)
-        self.assertLessEqual(n_workers * job_nproc, 60)
-        self.assertLessEqual(n_workers * job_mem, 32)
-
-    def test_gaussian_failure_includes_returncode(self):
-        import tempfile
-        from unittest.mock import patch
-
-        from ligandparam.Interfaces import Gaussian
-
-        class _Proc:
-            returncode = 137
-            stdout = b""
-            stderr = b"Killed"
-
-        with tempfile.TemporaryDirectory() as tmp:
-            gau = Gaussian(
-                cwd=tmp,
-                gaussian_root="",
-                gauss_exedir="",
-                gaussian_binary="g16",
-                gaussian_scratch="",
-            )
-            with patch(
-                "ligandparam.Interfaces.subprocess.run", return_value=_Proc()
-            ):
-                with self.assertRaises(RuntimeError) as ctx:
-                    gau.call(inp_pipe="job.com", out_pipe="job.log")
-        msg = str(ctx.exception)
-        self.assertIn("returncode=137", msg)
-        self.assertIn("OOM", msg)
-
-    def test_parmhelper_sed_escape_is_valid(self):
-        import warnings
-        from pathlib import Path
-
-        src = (
-            Path(__file__).resolve().parents[1]
-            / "src"
-            / "ligandparam"
-            / "multiresp"
-            / "ParmHelper.py"
-        )
-        text = src.read_text(encoding="utf-8")
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always", SyntaxWarning)
-            compile(text, str(src), "exec")
-        syn = [w for w in caught if issubclass(w.category, SyntaxWarning)]
-        self.assertEqual(syn, [], [str(w.message) for w in syn])
-
-
-class TestRecipeDefaultsIsolation(unittest.TestCase):
-    def test_fresh_defaults_not_shared(self):
-        from ligandparam.Parametrization import fresh_recipe_defaults
-
-        a = fresh_recipe_defaults()
-        b = fresh_recipe_defaults()
-        a["leaprc"].append("leaprc.protein.ff14SB")
-        self.assertNotIn("leaprc.protein.ff14SB", b["leaprc"])
-        a["theory"]["low"] = "X"
-        self.assertNotEqual(b["theory"]["low"], "X")
 
 
 _COMPANION_ENV = (

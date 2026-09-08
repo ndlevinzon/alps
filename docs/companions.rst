@@ -2,12 +2,15 @@ Companion packages (ffpopt / scission / ligandparam)
 ====================================================
 
 ALPS is an orchestrator. It does not vendor the three science packages.
-Sibling checkouts (or ``pip install -e`` of each) sit beside ``alps-main``::
+Sibling checkouts (or ``pip install -e`` of each) sit beside this repo::
 
-    alps-main/            import alps
-    ligandparam-main/     import ligandparam
-    scission-main/        import scission
-    ffpopt-main/          import ffpopt  (York: src/python/lib/ffpopt)
+    alps/                 import alps
+    ligandparam/          import ligandparam
+    scission/             import scission
+    ffpopt/               import ffpopt  (York: src/python/lib/ffpopt)
+
+Older sibling folder names (``alps-main``, ``ligandparam-main``, ...) are
+still discovered. Prefer the package names above.
 
 How ALPS chooses a tree
 -----------------------
@@ -23,9 +26,9 @@ Variable                        Meaning
 =============================== ===========================================
 
 A PATH value is either the parent of the package (``.../lib`` with
-``lib/ffpopt/``) or the package directory itself (``scission-main/`` with
-``__init__.py``). Unset PATH falls back to sibling ``*-main`` folders, then
-to whatever is already installed.
+``lib/ffpopt/``) or the package directory itself (``scission/`` with
+``__init__.py``). Unset PATH falls back to sibling folders, then to whatever
+is already installed.
 
 Call graph
 ----------

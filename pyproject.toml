@@ -21,9 +21,9 @@ classifiers = [
   "Operating System :: OS Independent",
 ]
 # Orchestrator-only. Install companions separately:
-#   pip install -e ../ligandparam-main
-#   pip install -e ../scission-main
-#   pip install -e ../ffpopt-main
+#   pip install -e ../ligandparam
+#   pip install -e ../scission
+#   pip install -e ../ffpopt
 # AmberTools is not on PyPI.
 dependencies = [
   "numpy<2",
@@ -39,7 +39,7 @@ dependencies = [
   "pyyaml>=6.0",
 ]
 
-urls = { "Homepage" = "https://github.com/piskulichz/ligandparam" }
+urls = { "Homepage" = "https://github.com/ndlevinzon/alps" }
 
 [project.optional-dependencies]
 tblite = [
@@ -91,7 +91,7 @@ lig-dihed-correct = "alps.cli.LigDihedCorrect:main"
 lig-scission = "alps.cli.LigScission:main"
 
 # This directory is both the project root and the import package,
-# matching ligandparam-main / scission-main.
+# matching ligandparam / scission.
 [tool.setuptools]
 package-dir = { "alps" = "." }
 packages = [

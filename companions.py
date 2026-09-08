@@ -3,9 +3,12 @@
 ALPS is only the orchestrator. The three tools live as independent packages
 at the repo root (or on ``sys.path`` after ``pip install -e``)::
 
-    ligandparam-main/          # import ligandparam
-    scission-main/             # import scission
-    ffpopt-main/src/python/lib # import ffpopt
+    ligandparam/          # import ligandparam
+    scission/             # import scission
+    ffpopt/src/python/lib # import ffpopt
+
+Older sibling names (``ligandparam-main``, ``scission-main``, ``ffpopt-main``)
+are still discovered.
 
 Environment (optional; auto-discovery is the default)::
 
@@ -15,7 +18,7 @@ Environment (optional; auto-discovery is the default)::
 
 A PATH value may be the directory that contains the package
 (``.../lib`` with ``lib/ffpopt/``), or the package directory itself
-(``scission-main/`` with ``__init__.py``).
+(``scission/`` with ``__init__.py``).
 """
 
 from __future__ import annotations
@@ -58,18 +61,26 @@ class CompanionInfo:
 
 
 def package_dir() -> Path:
-    """This ALPS checkout (``alps-main/`` or a standalone clone)."""
+    """This ALPS checkout (``alps/`` or a standalone clone)."""
     return Path(__file__).resolve().parent
 
 
 def repo_root() -> Path:
-    """Directory that contains sibling ``*-main`` checkouts.
+    """Directory that contains sibling companion checkouts.
 
-    ``alps-main/companions.py`` -> parent of ``alps-main``. When ALPS is
-    later its own clone sitting beside ``ligandparam-main`` /
-    ``scission-main`` / ``ffpopt-main``, that parent is the workspace.
+    ``alps/companions.py`` -> parent of ``alps``. When ALPS sits beside
+    ``ligandparam`` / ``scission`` / ``ffpopt``, that parent is the workspace.
     """
     return Path(__file__).resolve().parent.parent
+
+
+def sibling_checkout(name: str, *, root: Path | None = None) -> Path | None:
+    """Return ``<root>/<name>`` or the legacy ``<root>/<name>-main`` folder."""
+    base = repo_root() if root is None else root
+    for folder in (base / name, base / f"{name}-main"):
+        if folder.is_dir():
+            return folder
+    return None
 
 
 def bundled_src_root() -> Path:
@@ -172,17 +183,19 @@ def _env_path(name: str) -> str | None:
 
 def _default_tree(name: str) -> Path | None:
     root = repo_root()
+    folders = (root / name, root / f"{name}-main")
     if name == "ffpopt":
-        lib = root / "ffpopt-main" / "src" / "python" / "lib"
-        if (lib / "ffpopt" / "__init__.py").is_file():
-            return lib
+        for folder in folders:
+            lib = folder / "src" / "python" / "lib"
+            if (lib / "ffpopt" / "__init__.py").is_file():
+                return lib
         return None
-    folder = root / f"{name}-main"
-    if (folder / "__init__.py").is_file():
-        return folder
-    nested = folder / "src" / name
-    if (nested / "__init__.py").is_file():
-        return nested.parent
+    for folder in folders:
+        if (folder / "__init__.py").is_file():
+            return folder
+        nested = folder / "src" / name
+        if (nested / "__init__.py").is_file():
+            return nested.parent
     return None
 
 
@@ -290,7 +303,7 @@ def _bind(name: str, path_entry: Path, layout: str) -> None:
 def _apply_pythonpath(infos: Mapping[str, CompanionInfo]) -> None:
     """So spawn workers re-import the same ffpopt tree.
 
-    Flat packages (this ALPS checkout, ligandparam-main, scission-main)
+    Flat packages (this ALPS checkout, ligandparam, scission)
     are bound via ``spec_from_file_location`` / editable install, not
     ``PYTHONPATH`` folder names.
     """
