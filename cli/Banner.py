@@ -38,7 +38,7 @@ def format_startup_banner(*, version: str | None = None) -> str:
     return (
         f"{_LOGO}\n"
         f"\n"
-        f"  ALPS  v{ver}\n"
+        f"  Amber Ligand Parameters v{ver}\n"
         f"  Orchestrates ligandparam, scission, and ffpopt\n"
         f"\n"
     )

@@ -275,7 +275,9 @@ class TestBehavioralSmoke(unittest.TestCase):
         try:
             buf = io.StringIO()
             self.assertTrue(print_startup_banner(stream=buf))
-            self.assertIn("ALPS", buf.getvalue())
+            text = buf.getvalue()
+            self.assertIn("ALPS", text)
+            self.assertIn("Amber Ligand Parameters v", text)
             banner_mod._BANNER_PRINTED = False
             self.assertFalse(print_startup_banner(stream=buf))
             self.assertEqual(os.environ.get("FFPOPT_BANNER_PRINTED"), "1")
