@@ -356,7 +356,7 @@ def main(argv: list[str] | None = None) -> int:
         from ligandparam.Log import dihed_correct_ok, log_success_quote
 
         if dihed_correct_ok(result, dry_run=args.dry_run):
-            log_success_quote(logger)
+            log_success_quote(logger, speaker="ALPS")
     return 0
 
 
