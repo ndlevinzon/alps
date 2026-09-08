@@ -86,6 +86,10 @@ def make_fragment_board(out_dir: PathLike, *, logger, stream: TextIO | None = No
 
     out_dir = Path(out_dir)
     try:
+        (out_dir / ".frag_progress.json").unlink()
+    except FileNotFoundError:
+        pass
+    try:
         store = FragmentProgressStore(out_dir / ".frag_progress.json")
         watcher = make_board_watcher(
             "fragment",
@@ -115,6 +119,10 @@ def make_whole_board(out_dir: PathLike, *, logger, stream: TextIO | None = None)
     )
 
     out_dir = Path(out_dir)
+    try:
+        (out_dir / ".whole_progress.json").unlink()
+    except FileNotFoundError:
+        pass
     try:
         store = WholeProgressStore(out_dir / ".whole_progress.json")
         watcher = make_board_watcher(
