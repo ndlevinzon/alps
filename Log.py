@@ -22,6 +22,7 @@ _ATTACHED = False
 _HANDLER: logging.Handler | None = None
 _LOGGER_NAMES = ("alps", "ligandparam", "scission", "ffpopt")
 _TEE_INSTALLED = False
+_STDIO_CONFIGURED = False
 
 
 class _CompanionFormatter(logging.Formatter):
@@ -34,13 +35,42 @@ class _CompanionFormatter(logging.Formatter):
         return f"[{record.name}] {msg}"
 
 
+class _FlushingStreamHandler(logging.StreamHandler):
+    """Flush after every record so Slurm ``.out`` files update immediately."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        super().emit(record)
+        try:
+            self.flush()
+        except Exception:
+            pass
+
+
+def configure_line_buffered_stdio() -> None:
+    """Force line-buffered stdout/stderr (Slurm redirects are fully buffered)."""
+    global _STDIO_CONFIGURED
+    os.environ.setdefault("PYTHONUNBUFFERED", "1")
+    if _STDIO_CONFIGURED:
+        return
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if not callable(reconfigure):
+            continue
+        try:
+            reconfigure(line_buffering=True)
+        except Exception:
+            continue
+    _STDIO_CONFIGURED = True
+
+
 def setup_alps_stdout_logging(*, stream: TextIO | None = None) -> None:
     """Attach one stdout handler to companion loggers (idempotent)."""
     global _ATTACHED, _HANDLER
+    configure_line_buffered_stdio()
     if _ATTACHED:
         return
     out = stream if stream is not None else sys.stdout
-    handler = logging.StreamHandler(out)
+    handler = _FlushingStreamHandler(out)
     handler.setLevel(logging.INFO)
     handler.setFormatter(_CompanionFormatter())
     handler._alps_stdout = True  # type: ignore[attr-defined]
@@ -100,7 +130,7 @@ def install_ligandparam_stdout_tee() -> None:
 
 def reset_for_tests() -> None:
     """Drop ALPS stdout handlers (unit tests only)."""
-    global _ATTACHED, _HANDLER, _TEE_INSTALLED
+    global _ATTACHED, _HANDLER, _TEE_INSTALLED, _STDIO_CONFIGURED
     for name in _LOGGER_NAMES:
         log = logging.getLogger(name)
         log.handlers = [
@@ -109,4 +139,5 @@ def reset_for_tests() -> None:
     _ATTACHED = False
     _HANDLER = None
     _TEE_INSTALLED = False
+    _STDIO_CONFIGURED = False
     os.environ.pop("ALPS_STDOUT_LOGGING", None)

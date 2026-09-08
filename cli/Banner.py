@@ -54,8 +54,9 @@ def print_startup_banner(
     Also sets ``FFPOPT_BANNER_PRINTED`` and ``LIGANDPARAM_BANNER_PRINTED``
     so companion workers inherit the one-banner-per-job rule.
     """
-    from alps.Log import setup_alps_stdout_logging
+    from alps.Log import configure_line_buffered_stdio, setup_alps_stdout_logging
 
+    configure_line_buffered_stdio()
     global _BANNER_PRINTED
     if not force:
         if _BANNER_PRINTED or os.environ.get("ALPS_BANNER_PRINTED"):
@@ -74,3 +75,21 @@ def print_startup_banner(
     os.environ["LIGANDPARAM_BANNER_PRINTED"] = "1"
     setup_alps_stdout_logging()
     return True
+
+
+def print_progress_hint(*, stream: TextIO | None = None) -> None:
+    """Remind operators that long external tools are silent without the board."""
+    from alps.Log import configure_line_buffered_stdio
+
+    configure_line_buffered_stdio()
+    out = stream if stream is not None else sys.__stdout__
+    try:
+        out.write(
+            "Progress: a live ASCII board is reprinted on this stdout while\n"
+            "antechamber / sqm / g16 run. Those tools print nothing until they\n"
+            "finish; a quiet Slurm .out is normal between board refreshes.\n"
+            "\n"
+        )
+        out.flush()
+    except OSError:
+        return

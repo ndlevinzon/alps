@@ -288,6 +288,34 @@ class TestBehavioralSmoke(unittest.TestCase):
 
             reset_for_tests()
 
+    def test_progress_hint_and_flushing_stdout(self):
+        from alps.cli.Banner import print_progress_hint
+        from alps.Log import (
+            _FlushingStreamHandler,
+            configure_line_buffered_stdio,
+            reset_for_tests,
+            setup_alps_stdout_logging,
+        )
+
+        reset_for_tests()
+        try:
+            buf = io.StringIO()
+            print_progress_hint(stream=buf)
+            hint = buf.getvalue()
+            self.assertIn("live ASCII board", hint)
+            self.assertIn("quiet Slurm", hint)
+            configure_line_buffered_stdio()
+            self.assertEqual(os.environ.get("PYTHONUNBUFFERED"), "1")
+            log_buf = io.StringIO()
+            setup_alps_stdout_logging(stream=log_buf)
+            from alps.Log import _HANDLER
+
+            self.assertIsInstance(_HANDLER, _FlushingStreamHandler)
+        finally:
+            from alps.Log import reset_for_tests as _reset
+
+            _reset()
+
     def test_alps_stdout_keeps_independent_logger_names(self):
         from alps.Log import get_logger, reset_for_tests, setup_alps_stdout_logging
 
