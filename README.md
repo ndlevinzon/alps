@@ -21,8 +21,9 @@ Companion docs: [ligandparam](https://github.com/ndlevinzon/ligandparam),
 [scission](https://github.com/ndlevinzon/scission),
 [ffpopt](https://github.com/ndlevinzon/ffpopt).
 The import contract is in [`docs/companions.rst`](docs/companions.rst).
-The combined Sphinx API reference lives in the workspace:
-[`../docs/`](../docs/index.rst).
+The combined Sphinx API reference lives in the workspace
+([`../docs/`](../docs/index.rst)) and on Read the Docs:
+[alps-workspace.readthedocs.io](https://alps-workspace.readthedocs.io/en/latest/).
 
 ---
 
@@ -119,7 +120,9 @@ python -m unittest tests.test_developer_regression -v
 ```
 
 The combined Sphinx docs (ALPS, LigandParam, Scission, FFPOPT) are in
-the workspace repo: `pip install -r ../docs/requirements.txt`, then
+the workspace repo and on Read the Docs:
+[alps-workspace.readthedocs.io](https://alps-workspace.readthedocs.io/en/latest/).
+Locally: `pip install -r ../docs/requirements.txt`, then
 `sphinx-build -b html ../docs ../docs/_build/html`.
 
 ---
