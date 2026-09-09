@@ -139,6 +139,37 @@ def _load_existing_fragments(out_dir: Path):
     return fragments or None
 
 
+def _log_fragment_final_fit(log, fragment_id, result) -> None:
+    """Print the post-fit HL-vs-MM verdict for every bond in this fragment."""
+    finals = (result or {}).get("final_comparisons") or {}
+    if not finals:
+        iters = (result or {}).get("iteration_comparisons") or []
+        if iters:
+            finals = iters[-1].get("comparisons") or {}
+        else:
+            finals = (result or {}).get("initial_comparisons") or {}
+    if not finals:
+        log.info("[alps] %s: twist finished (no comparison records)", fragment_id)
+        return
+    log.info("[alps] %s final fit vs HL (total energy):", fragment_id)
+    for idx, rec in finals.items():
+        flat = getattr(rec, "is_flat", False)
+        close = getattr(rec, "is_close", False)
+        verdict = "FLAT" if flat else ("OK" if close else "FAIL")
+        bh = getattr(rec, "barrier_hl", 0.0)
+        bl = getattr(rec, "barrier_ll", 0.0)
+        log.info(
+            "[alps]   %s: %s  barrier HL=%.2f LL=%.2f kcal/mol",
+            idx,
+            verdict,
+            bh,
+            bl,
+        )
+        reasons = getattr(rec, "reasons", None) or []
+        if reasons:
+            log.info("[alps]     %s", "; ".join(reasons))
+
+
 def _twist_one_fragment(
     fragment,
     *,
@@ -211,6 +242,7 @@ def _twist_one_fragment(
                 bond=bond_args,
                 **york_kwargs,
             )
+    _log_fragment_final_fit(log, fragment.fragment_id, result)
     mark_fragment_twist_done(frag_dir)
     if progress is not None:
         progress.update(
