@@ -56,6 +56,14 @@ def run_dihed_correct(
     dry_run: bool = False,
     fast_wavefront: bool | None = None,
     whole_ligand: bool = False,
+    fragment_config=None,
+    fragment_strategy: str | None = None,
+    fragment_config_path: Path | None = None,
+    wbo_max_growth: int | None = None,
+    keep_non_rotor_ring_substituents: bool | None = None,
+    include_rigid_single_bonds: bool | None = None,
+    include_bond_smarts=None,
+    restrict_bond_smarts=None,
     multi_centroid: int = 0,
     boltzmann_charges: bool = False,
     soft_dihed_restraint: bool = False,
@@ -104,6 +112,14 @@ def run_dihed_correct(
         skip_existing=skip_existing,
         fast_wavefront=fast_wavefront,
         whole_ligand=whole_ligand,
+        fragment_config=fragment_config,
+        fragment_strategy=fragment_strategy,
+        fragment_config_path=fragment_config_path,
+        wbo_max_growth=wbo_max_growth,
+        keep_non_rotor_ring_substituents=keep_non_rotor_ring_substituents,
+        include_rigid_single_bonds=include_rigid_single_bonds,
+        include_bond_smarts=include_bond_smarts,
+        restrict_bond_smarts=restrict_bond_smarts,
         multi_centroid=multi_centroid,
         boltzmann_charges=boltzmann_charges,
         soft_dihed_restraint=soft_dihed_restraint,
@@ -205,6 +221,56 @@ def main(argv: list[str] | None = None) -> int:
         "--whole-ligand",
         action="store_true",
         help="Skip scission fragmentation; twist the full parent ligand",
+    )
+    parser.add_argument(
+        "--strategy",
+        default=None,
+        help=(
+            "Scission fragmentation scheme used before the dihedral scan: "
+            "scission (default; rigid-domain shells), pfizer, or wbo "
+            "(Stern et al., bioRxiv 2020.08.27.270934). Ignored with "
+            "--whole-ligand. Custom names require scission.register_strategy."
+        ),
+    )
+    parser.add_argument(
+        "--fragment-config",
+        type=Path,
+        default=None,
+        help="YAML FragmentConfig (same keys as scission --config)",
+    )
+    parser.add_argument(
+        "--wbo-max-growth",
+        type=int,
+        default=None,
+        help="For --strategy wbo, stop after this many substituent additions",
+    )
+    parser.add_argument(
+        "--keep-non-rotor-ring-substituents",
+        action="store_true",
+        help="Pfizer/WBO: keep non-rotatable heavy substituents on included rings",
+    )
+    parser.add_argument(
+        "--acyclic-rotatable-only",
+        action="store_true",
+        help="Stricter scission torsion definition (exclude amide-like single bonds)",
+    )
+    parser.add_argument(
+        "--include-bond-smarts",
+        action="append",
+        default=[],
+        help=(
+            "SMARTS that can nominate an extra central bond (:1 and :2). "
+            "May be repeated."
+        ),
+    )
+    parser.add_argument(
+        "--restrict-bond-smarts",
+        action="append",
+        default=[],
+        help=(
+            "Allow-list SMARTS for which torsions to fragment (:1 and :2). "
+            "May be repeated."
+        ),
     )
     parser.add_argument(
         "--multi-centroid",
@@ -323,6 +389,10 @@ def main(argv: list[str] | None = None) -> int:
         logger.warning(
             "[alps] AFFDO extras are not in this ffpopt checkout; running a plain parent twist"
         )
+    if args.whole_ligand and args.strategy:
+        logger.warning(
+            "[alps] --strategy is ignored with --whole-ligand (no scission)"
+        )
     result = run_dihed_correct(
         bundle=bundle,
         out_frcmod=args.out_frcmod,
@@ -337,6 +407,17 @@ def main(argv: list[str] | None = None) -> int:
         dry_run=args.dry_run,
         fast_wavefront=True if args.fast else None,
         whole_ligand=args.whole_ligand,
+        fragment_strategy=args.strategy,
+        fragment_config_path=args.fragment_config,
+        wbo_max_growth=args.wbo_max_growth,
+        keep_non_rotor_ring_substituents=(
+            True if args.keep_non_rotor_ring_substituents else None
+        ),
+        include_rigid_single_bonds=(
+            False if args.acyclic_rotatable_only else None
+        ),
+        include_bond_smarts=args.include_bond_smarts,
+        restrict_bond_smarts=args.restrict_bond_smarts,
         multi_centroid=args.multi_centroid,
         boltzmann_charges=args.boltzmann_charges,
         soft_dihed_restraint=args.soft_dihed_restraint,

@@ -312,7 +312,11 @@ def run_fragmented_dihed_twist_workflow(
         fragmentation_dump = None
         fragments_iter = existing
     else:
-        log.info("[alps] scission fragment -> %s", out_dir_path)
+        log.info(
+            "[alps] scission fragment strategy=%s -> %s",
+            getattr(config, "strategy", "scission"),
+            out_dir_path,
+        )
         frag_result = fragment_ligand(input_bundle, out_dir_path, config)
         log.info("[alps] selected %s fragment(s)", len(frag_result.selected_fragments))
         fragmentation_dump = frag_result.to_dict()

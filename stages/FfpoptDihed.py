@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Optional, Union
+from dataclasses import replace as _dc_replace
 
 from ligandparam.stages.AbstractStage import AbstractStage
 
@@ -36,6 +37,71 @@ def coerce_fragment_config(value: Any):
         "fragment_config must be None, a FragmentConfig, or a dict; "
         f"got {type(value).__name__}"
     )
+
+
+def build_fragment_config(
+    *,
+    fragment_config: Any = None,
+    config_path: Path | str | None = None,
+    strategy: str | None = None,
+    wbo_max_growth: int | None = None,
+    keep_non_rotor_ring_substituents: bool | None = None,
+    include_rigid_single_bonds: bool | None = None,
+    include_bond_smarts: Any = None,
+    restrict_bond_smarts: Any = None,
+):
+    """Build a scission ``FragmentConfig`` from a dict/object plus CLI overrides.
+
+    ``config_path`` (YAML) is the base. Explicit ``fragment_config`` replaces
+    it. Remaining kwargs overlay fields used before the dihedral scan.
+    """
+    from scission.Models import FragmentConfig
+
+    if fragment_config is not None:
+        config = coerce_fragment_config(fragment_config)
+    elif config_path is not None:
+        try:
+            import yaml
+        except ImportError as exc:  # pragma: no cover
+            raise ImportError("YAML fragment configs require pyyaml") from exc
+        payload = yaml.safe_load(Path(config_path).read_text()) or {}
+        config = FragmentConfig.from_dict(payload)
+    else:
+        config = FragmentConfig()
+    if strategy:
+        config = _dc_replace(config, strategy=str(strategy))
+    if wbo_max_growth is not None:
+        config = _dc_replace(config, wbo_max_growth=int(wbo_max_growth))
+    if keep_non_rotor_ring_substituents is not None:
+        config = _dc_replace(
+            config,
+            keep_non_rotor_ring_substituents=bool(keep_non_rotor_ring_substituents),
+        )
+    if include_rigid_single_bonds is not None:
+        config = _dc_replace(
+            config, include_rigid_single_bonds=bool(include_rigid_single_bonds)
+        )
+    extra_include = _as_smarts_tuple(include_bond_smarts)
+    if extra_include:
+        config = _dc_replace(
+            config,
+            rotatable_bond_smarts=config.rotatable_bond_smarts + extra_include,
+        )
+    extra_restrict = _as_smarts_tuple(restrict_bond_smarts)
+    if extra_restrict:
+        config = _dc_replace(
+            config,
+            restrict_to_bond_smarts=config.restrict_to_bond_smarts + extra_restrict,
+        )
+    return config
+
+
+def _as_smarts_tuple(value: Any) -> tuple[str, ...]:
+    if not value:
+        return ()
+    if isinstance(value, str):
+        return (value,)
+    return tuple(str(item) for item in value)
 
 
 class StageDihedTwistCorrection(AbstractStage):
@@ -78,6 +144,16 @@ with the original library in LEaP.
         Scission fragmentation settings forwarded to
         ``run_fragmented_dihed_twist_workflow``. Default ``None`` (scission
         defaults).
+    fragment_strategy : str, optional
+        Named scission scheme (``scission``, ``pfizer``, ``wbo``, or a
+        name from :func:`scission.register_strategy`). Applied before the
+        dihedral scan. Ignored for ``whole_ligand``.
+    fragment_config_path : path-like, optional
+        YAML file loaded as the base ``FragmentConfig``.
+    wbo_max_growth : int, optional
+        Cap WBO growth steps (Stern path-length heuristic).
+    keep_non_rotor_ring_substituents : bool, optional
+        Keep non-rotatable ring substituents for Pfizer/WBO.
     """
 
     def __init__(
@@ -101,7 +177,18 @@ with the original library in LEaP.
         self.geometric_opt = bool(kwargs.get("geometric_opt", True))
         self.skip_existing = bool(kwargs.get("skip_existing", True))
         self.rotatable_bond_smarts = kwargs.get("rotatable_bond_smarts")
-        self.fragment_config = coerce_fragment_config(kwargs.get("fragment_config"))
+        self.fragment_config = build_fragment_config(
+            fragment_config=kwargs.get("fragment_config"),
+            config_path=kwargs.get("fragment_config_path"),
+            strategy=kwargs.get("fragment_strategy") or kwargs.get("strategy"),
+            wbo_max_growth=kwargs.get("wbo_max_growth"),
+            keep_non_rotor_ring_substituents=kwargs.get(
+                "keep_non_rotor_ring_substituents"
+            ),
+            include_rigid_single_bonds=kwargs.get("include_rigid_single_bonds"),
+            include_bond_smarts=kwargs.get("include_bond_smarts"),
+            restrict_bond_smarts=kwargs.get("restrict_bond_smarts"),
+        )
         self.fast_wavefront = kwargs.get("fast_wavefront")
         self.geometric_maxiter = kwargs.get("geometric_maxiter")
         self.geometric_converge = kwargs.get("geometric_converge")
@@ -137,6 +224,11 @@ with the original library in LEaP.
         )
         if self.whole_ligand:
             self.logger.info("[alps] whole-ligand twist (no scission fragments)")
+        elif self.fragment_config is not None:
+            self.logger.info(
+                "[alps] scission strategy=%s before dihedral scan",
+                getattr(self.fragment_config, "strategy", "scission"),
+            )
         if dry_run:
             which = (
                 "run_whole_ligand_dihed_twist_workflow"
@@ -265,6 +357,13 @@ def dihed_twist_stage_kwargs(
     skip_existing: bool = True,
     rotatable_bond_smarts=None,
     fragment_config=None,
+    fragment_strategy=None,
+    fragment_config_path=None,
+    wbo_max_growth=None,
+    keep_non_rotor_ring_substituents=None,
+    include_rigid_single_bonds=None,
+    include_bond_smarts=None,
+    restrict_bond_smarts=None,
     fast_wavefront=None,
 ) -> dict:
     """Keyword arguments for constructing :class:`StageDihedTwistCorrection`."""
@@ -283,6 +382,13 @@ def dihed_twist_stage_kwargs(
         "skip_existing": skip_existing,
         "rotatable_bond_smarts": rotatable_bond_smarts,
         "fragment_config": fragment_config,
+        "fragment_strategy": fragment_strategy,
+        "fragment_config_path": fragment_config_path,
+        "wbo_max_growth": wbo_max_growth,
+        "keep_non_rotor_ring_substituents": keep_non_rotor_ring_substituents,
+        "include_rigid_single_bonds": include_rigid_single_bonds,
+        "include_bond_smarts": include_bond_smarts,
+        "restrict_bond_smarts": restrict_bond_smarts,
         "fast_wavefront": fast_wavefront,
         "logger": logger,
     }

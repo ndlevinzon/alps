@@ -315,6 +315,35 @@ class TestBehavioralSmoke(unittest.TestCase):
 
             reset_for_tests()
 
+    def test_dihed_correct_fragment_strategy_before_scan(self):
+        import io
+        from contextlib import redirect_stdout
+
+        from alps.cli.LigDihedCorrect import main as dihed_main
+        from alps.stages.FfpoptDihed import build_fragment_config
+
+        cfg = build_fragment_config(strategy="pfizer", wbo_max_growth=3)
+        self.assertEqual(cfg.strategy, "pfizer")
+        self.assertEqual(cfg.wbo_max_growth, 3)
+        cfg2 = build_fragment_config(
+            fragment_config={"strategy": "scission"},
+            strategy="wbo",
+            include_bond_smarts=["[C:1](=[O])[N:2]"],
+        )
+        self.assertEqual(cfg2.strategy, "wbo")
+        self.assertTrue(cfg2.rotatable_bond_smarts)
+
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            try:
+                dihed_main(["--help"])
+            except SystemExit as exc:
+                self.assertEqual(exc.code, 0)
+        help_text = buf.getvalue()
+        self.assertIn("--strategy", help_text)
+        self.assertIn("--fragment-config", help_text)
+        self.assertIn("pfizer", help_text)
+
     def test_progress_hint_and_flushing_stdout(self):
         from alps.cli.Banner import print_progress_hint
         from alps.Log import (

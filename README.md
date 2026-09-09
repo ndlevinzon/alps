@@ -21,6 +21,8 @@ Companion docs: [ligandparam](https://github.com/ndlevinzon/ligandparam),
 [scission](https://github.com/ndlevinzon/scission),
 [ffpopt](https://github.com/ndlevinzon/ffpopt).
 The import contract is in [`docs/companions.rst`](docs/companions.rst).
+The combined Sphinx API reference lives in the workspace:
+[`../docs/`](../docs/index.rst).
 
 ---
 
@@ -32,6 +34,10 @@ lig-getparam -i chaps.mol2 -r CHA -d CHA -rn freeligand --net_charge 0 -n 10 -me
 
 # 2a) Default: fragment the ligand, twist each piece, merge DIHE back
 lig-dihed-correct -d CHA -r CHA --label chaps --model xtb -n 44
+
+# 2a') Pfizer or WBO fragments (Stern et al.) before the scan
+lig-dihed-correct -d CHA -r CHA --label chaps --model xtb -n 44 --strategy pfizer
+lig-dihed-correct -d CHA -r CHA --label chaps --model xtb -n 44 --strategy wbo
 
 # 2b) Alternative: twist the intact parent (no scission)
 lig-dihed-correct -d CHA -r CHA --label chaps --model xtb -n 44 --whole-ligand
@@ -65,7 +71,12 @@ Inspect cuts only:
 
 ```bash
 lig-scission fragment -d CHA3 -r CHA --label chaps
+lig-scission fragment -d CHA3 -r CHA --label chaps --strategy pfizer
 ```
+
+`--strategy` on `lig-dihed-correct` (and `lig-scission fragment`) chooses the
+scission scheme **before** the ffpopt scan: `scission` (default), `pfizer`,
+or `wbo`. YAML is `--fragment-config file.yaml`.
 
 Python entry points:
 
@@ -106,6 +117,10 @@ an extra `pip install`. Override with `ALPS_LIGANDPARAM_PATH`,
 python -m unittest tests.test_install_validation -v
 python -m unittest tests.test_developer_regression -v
 ```
+
+The combined Sphinx docs (ALPS, LigandParam, Scission, FFPOPT) are in
+the workspace repo: `pip install -r ../docs/requirements.txt`, then
+`sphinx-build -b html ../docs ../docs/_build/html`.
 
 ---
 
