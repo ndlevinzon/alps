@@ -164,9 +164,13 @@ def install_ffpopt_stdio() -> None:
     """
     setup_alps_stdout_logging()
     try:
-        from ligandparam.runtime.Console import ensure_ascii_stdio
+        from ligandparam.runtime.Console import (
+            ensure_ascii_stdio,
+            install_ase_futurewarning_filter,
+        )
 
         ensure_ascii_stdio()
+        install_ase_futurewarning_filter()
     except Exception:
         pass
     silence_wavefront_origin_filters()
