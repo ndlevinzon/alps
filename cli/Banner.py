@@ -23,6 +23,13 @@ _LOGO = r"""
 
 _BANNER_PRINTED = False
 
+_AUTHORS = (
+    "Zeke Piskulich (York Lab)",
+    "German P. Barletta (York Lab)",
+    "Timothy J. Giese (York Lab)",
+    "Nate Levinzon (Cheatham Lab)",
+)
+
 
 def package_version() -> str:
     try:
@@ -35,11 +42,20 @@ def package_version() -> str:
 
 def format_startup_banner(*, version: str | None = None) -> str:
     ver = version if version is not None else package_version()
+    authors = "\n".join(f"    {a}" for a in _AUTHORS)
+    from alps.companions import format_companion_lines
+
+    companions = "\n".join(format_companion_lines())
     return (
         f"{_LOGO}\n"
         f"\n"
         f"  Amber Ligand Parameters v{ver}\n"
         f"  Orchestrates ligandparam, scission, and ffpopt\n"
+        f"\n"
+        f"  Authors:\n"
+        f"{authors}\n"
+        f"\n"
+        f"{companions}\n"
         f"\n"
     )
 

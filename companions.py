@@ -26,6 +26,7 @@ from __future__ import annotations
 import importlib
 import importlib.util
 import os
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -94,17 +95,90 @@ def companion_status() -> dict[str, CompanionInfo]:
 
 
 def format_status_line() -> str:
-    """One ASCII line naming each companion tree."""
-    parts = ["companions:"]
+    """Companion versions from each checkout's ``pyproject.toml``, one per line."""
+    return "\n".join(format_companion_lines())
+
+
+def format_companion_lines() -> list[str]:
+    """``ligandparam = v1.6.1 (C:/.../ligandparam-main)`` for each companion."""
+    lines: list[str] = []
     for name in _COMPANION_NAMES:
-        info = companion_status()[name]
-        parts.append(f"{name}={info.mode} ({info.origin})")
-    return " ".join(parts)
+        try:
+            info = companion_status()[name]
+        except Exception as exc:
+            lines.append(f"  {name} = vunknown ({exc})")
+            continue
+        toml = _find_pyproject(info.origin)
+        ver = _project_version(toml) if toml is not None else None
+        if not ver:
+            ver = _installed_version(name)
+        path = toml.parent if toml is not None else info.origin
+        ver_s = f"v{ver}" if ver else "vunknown"
+        lines.append(f"  {name} = {ver_s} ({path})")
+    return lines
 
 
 def print_status_line(*, file=None) -> None:
-    """Write :func:`format_status_line` (CLIs call this after the banner)."""
-    print(format_status_line(), file=file if file is not None else sys.stdout, flush=True)
+    """Write companion versions unless the startup banner already did."""
+    if os.environ.get("ALPS_BANNER_PRINTED"):
+        return
+    text = format_status_line()
+    print(text, file=file if file is not None else sys.stdout, flush=True)
+
+
+def _find_pyproject(origin: Path) -> Path | None:
+    """Walk from the import origin up to the checkout ``pyproject.toml``."""
+    here = Path(origin).resolve()
+    for _ in range(10):
+        cand = here / "pyproject.toml"
+        if cand.is_file():
+            return cand
+        if here.parent == here:
+            break
+        here = here.parent
+    return None
+
+
+def _project_version(toml_path: Path) -> str | None:
+    """Read ``[project].version`` from a PEP 621 ``pyproject.toml``."""
+    try:
+        text = toml_path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    try:
+        import tomllib
+    except ImportError:
+        tomllib = None
+    if tomllib is not None:
+        try:
+            data = tomllib.loads(text)
+        except Exception:
+            data = None
+        if isinstance(data, dict):
+            ver = (data.get("project") or {}).get("version")
+            if ver:
+                return str(ver)
+    in_project = False
+    for raw in text.splitlines():
+        stripped = raw.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            in_project = stripped == "[project]"
+            continue
+        if not in_project:
+            continue
+        match = re.match(r'version\s*=\s*["\']([^"\']+)["\']', stripped)
+        if match:
+            return match.group(1)
+    return None
+
+
+def _installed_version(name: str) -> str | None:
+    try:
+        import importlib.metadata
+
+        return importlib.metadata.version(name)
+    except Exception:
+        return None
 
 
 def reset_for_tests() -> None:

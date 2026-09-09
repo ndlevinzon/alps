@@ -1,11 +1,11 @@
 [![Python](https://img.shields.io/badge/python->=3.10-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-# ALPS
+# Amber Ligand Parameters (ALPs)
 
 **Orchestrator for ligandparam, scission, and ffpopt**
 
-ALPS does not reimplement parameterization, fragmentation, or torsion fitting.
+ALPs does not reimplement parameterization, fragmentation, or torsion fitting.
 It binds independent checkouts of those three tools and runs the pipeline in one
 process:
 
@@ -28,13 +28,13 @@ The import contract is in [`docs/companions.rst`](docs/companions.rst).
 
 ```bash
 # 1) Charges, types, baseline frcmod / lib
-lig-getparam -i chaps.mol2 -r CHA -d CHA3 -rn freeligand --net_charge 0 -n 10 -mem 32
+lig-getparam -i chaps.mol2 -r CHA -d CHA -rn freeligand --net_charge 0 -n 10 -mem 32
 
 # 2a) Default: fragment the ligand, twist each piece, merge DIHE back
-lig-dihed-correct -d CHA3 -r CHA --label chaps --model xtb -n 44
+lig-dihed-correct -d CHA -r CHA --label chaps --model xtb -n 44
 
 # 2b) Alternative: twist the intact parent (no scission)
-lig-dihed-correct -d CHA3 -r CHA --label chaps --model xtb -n 44 --whole-ligand
+lig-dihed-correct -d CHA -r CHA --label chaps --model xtb -n 44 --whole-ligand
 ```
 
 `--label` is the recipe file stem (`chaps` from `chaps.mol2`), not the residue

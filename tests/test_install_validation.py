@@ -77,6 +77,26 @@ class TestCorePackageInstall(unittest.TestCase):
             self.assertIn(status[name].mode, {"sibling", "installed", "path"})
         self.assertFalse(getattr(scission, "__ligandparam_bundle__", False))
 
+    def test_companion_versions_come_from_pyproject(self):
+        from alps.companions import (
+            _find_pyproject,
+            _project_version,
+            companion_status,
+            format_companion_lines,
+        )
+
+        status = companion_status()
+        lines = format_companion_lines()
+        self.assertEqual(len(lines), 3)
+        for name in ("ligandparam", "scission", "ffpopt"):
+            toml = _find_pyproject(status[name].origin)
+            self.assertIsNotNone(toml, name)
+            ver = _project_version(toml)
+            self.assertIsNotNone(ver, name)
+            blob = "\n".join(lines)
+            self.assertIn(f"{name} = v{ver}", blob)
+            self.assertIn(str(toml.parent), blob)
+
     def test_import_integrated_packages(self):
         import alps
         import ffpopt
@@ -276,8 +296,13 @@ class TestBehavioralSmoke(unittest.TestCase):
             buf = io.StringIO()
             self.assertTrue(print_startup_banner(stream=buf))
             text = buf.getvalue()
-            self.assertIn("ALPS", text)
             self.assertIn("Amber Ligand Parameters v", text)
+            self.assertIn("Authors:", text)
+            self.assertIn("Zeke Piskulich (York Lab)", text)
+            self.assertIn("Nate Levinzon (Cheatham Lab)", text)
+            self.assertIn("ligandparam = v", text)
+            self.assertIn("scission = v", text)
+            self.assertIn("ffpopt = v", text)
             banner_mod._BANNER_PRINTED = False
             self.assertFalse(print_startup_banner(stream=buf))
             self.assertEqual(os.environ.get("FFPOPT_BANNER_PRINTED"), "1")
