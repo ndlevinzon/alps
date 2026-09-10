@@ -168,6 +168,12 @@ def _log_fragment_final_fit(log, fragment_id, result) -> None:
         reasons = getattr(rec, "reasons", None) or []
         if reasons:
             log.info("[alps]     %s", "; ".join(reasons))
+    rejected = (result or {}).get("rejected_iterations") or []
+    if rejected:
+        log.info("[alps] %s rejected iterations: %s", fragment_id, ", ".join(rejected))
+    early = (result or {}).get("early_stopped_at")
+    if early:
+        log.info("[alps] %s last accepted LL tag: %s", fragment_id, early)
 
 
 def _twist_one_fragment(
@@ -237,6 +243,15 @@ def _twist_one_fragment(
                 detail=f"{len(bonds)} bond(s)",
             )
         with pushd(frag_dir):
+            print("=" * 72)
+            print(f"[alps] fragment {fragment.fragment_id}")
+            print(f"[alps] dir={frag_dir}")
+            print(f"[alps] bonds={bond_args}  skip_existing={skip_existing}")
+            print(
+                "[alps] fit audit: this log, fit_trace.jsonl, iso.*.dat; "
+                "grep [fit] / [plot] / KEEP ORIG / NO-OP / skip_existing"
+            )
+            print("=" * 72)
             result = run_dihed_twist_workflow(
                 inp=str(start_json),
                 bond=bond_args,
