@@ -163,7 +163,7 @@ def main(argv: list[str] | None = None) -> int:
         "--label",
         type=str,
         default=None,
-        help="Recipe file stem (default: resname, or auto-detect unique *.mol2)",
+        help="Recipe file stem (SDS.mol2 -> SDS). Case-insensitive; default: resname",
     )
     parser.add_argument("--mol2", type=Path, default=None, help="Parent ligand mol2")
     parser.add_argument("--lib", type=Path, default=None, help="Parent Amber lib")
