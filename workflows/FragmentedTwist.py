@@ -435,7 +435,12 @@ def run_fragmented_dihed_twist_workflow(
                         stage="failed",
                         error=str(exc)[:200],
                     )
-                raise
+                log.error(
+                    "[alps] %s failed (%s); continuing with remaining fragments",
+                    fragment.fragment_id,
+                    exc,
+                )
+                continue
             per_fragment.append(rec)
             fragment_dirs.append(Path(rec["dir"]))
     finally:
@@ -443,7 +448,10 @@ def run_fragmented_dihed_twist_workflow(
             watcher.stop()
 
     if not fragment_dirs:
-        raise RuntimeError("no fragments had fittable torsions - nothing to merge")
+        raise RuntimeError(
+            "no fragments completed a dihedral twist - nothing to merge "
+            "(see frag-twist.log under each fragment directory)"
+        )
 
     report_path = merged_frcmod_path.with_name(
         merged_frcmod_path.name + ".merge_report.json"
